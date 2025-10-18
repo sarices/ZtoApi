@@ -1,7 +1,6 @@
-
 /**
  * ZtoApi - OpenAI兼容API代理服务器
- * 
+ *
  * 功能概述：
  * - 为 Z.ai 的 GLM-4.5, GLM-4.5V, GLM-4.6 等模型提供 OpenAI 兼容的 API 接口
  * - 支持流式和非流式响应模式
@@ -9,13 +8,13 @@
  * - 支持匿名 token 自动获取
  * - 智能处理模型思考过程展示
  * - 完整的请求统计和错误处理
- * 
+ *
  * 技术栈：
  * - Deno 原生 HTTP API
  * - TypeScript 类型安全
  * - Server-Sent Events (SSE) 流式传输
  * - 支持 Deno Deploy 和自托管部署
- * 
+ *
  * @author ZtoApi Team
  * @version 2.0.0
  * @since 2024
@@ -31,34 +30,34 @@ declare namespace Deno {
     write(p: Uint8Array): Promise<number>;
     close(): void;
   }
-  
+
   interface Addr {
     hostname: string;
     port: number;
     transport: string;
   }
-  
+
   interface Listener extends AsyncIterable<Conn> {
     readonly addr: Addr;
     accept(): Promise<Conn>;
     close(): void;
     [Symbol.asyncIterator](): AsyncIterableIterator<Conn>;
   }
-  
+
   interface HttpConn {
     nextRequest(): Promise<RequestEvent | null>;
     [Symbol.asyncIterator](): AsyncIterableIterator<RequestEvent>;
   }
-  
+
   interface RequestEvent {
     request: Request;
     respondWith(r: Response | Promise<Response>): Promise<void>;
   }
-  
+
   function listen(options: { port: number }): Listener;
   function serveHttp(conn: Conn): HttpConn;
   function serve(handler: (request: Request) => Promise<Response>): void;
-  
+
   namespace env {
     function get(key: string): string | undefined;
   }
@@ -101,6 +100,7 @@ interface OpenAIRequest {
   stream?: boolean;
   temperature?: number;
   max_tokens?: number;
+  reasoning?: boolean;
 }
 
 /**
@@ -109,14 +109,27 @@ interface OpenAIRequest {
  */
 interface Message {
   role: string;
-  content: string | Array<{
-    type: string;
-    text?: string;
-    image_url?: {url: string};
-    video_url?: {url: string};
-    document_url?: {url: string};
-    audio_url?: {url: string};
-  }>;
+  content:
+    | string
+    | Array<{
+        type: string;
+        text?: string;
+        image_url?: { url: string };
+        video_url?: { url: string };
+        document_url?: { url: string };
+        audio_url?: { url: string };
+      }>;
+}
+
+/**
+ * 文件上传结果结构
+ */
+interface UploadedFile {
+  id: string;
+  filename: string;
+  size: number;
+  type: string;
+  url?: string;
 }
 
 /**
@@ -145,6 +158,8 @@ interface UpstreamRequest {
   };
   tool_servers?: string[];
   variables?: Record<string, string>;
+  files?: UploadedFile[];
+  signature_prompt?: string;
 }
 
 /**
@@ -213,18 +228,349 @@ interface Model {
 }
 
 /**
+ * MCP 服务器配置
+ */
+interface MCPServerConfig {
+  name: string;
+  description: string;
+  enabled: boolean;
+}
+
+/**
+ * 高级模式检测配置
+ */
+interface ModelCapabilities {
+  thinking: boolean;
+  search: boolean;
+  advancedSearch: boolean;
+  vision: boolean;
+  mcp: boolean;
+}
+
+/**
  * 配置常量定义
  */
 
 // 思考内容处理策略: strip-去除<details>标签, think-转为<thinking>标签, raw-保留原样
 const THINK_TAGS_MODE = "strip";
 
+// MCP 服务器配置
+const MCP_SERVERS: Record<string, MCPServerConfig> = {
+  "deep-web-search": {
+    name: "Deep Web Search",
+    description: "深度网络搜索功能",
+    enabled: true,
+  },
+  "advanced-search": {
+    name: "Advanced Search",
+    description: "高级搜索功能",
+    enabled: true,
+  },
+  "vibe-coding": {
+    name: "Vibe Coding",
+    description: "编程助手功能",
+    enabled: true,
+  },
+  "ppt-maker": {
+    name: "PPT Maker",
+    description: "PPT 生成功能",
+    enabled: true,
+  },
+  "image-search": {
+    name: "Image Search",
+    description: "图像搜索功能",
+    enabled: true,
+  },
+  "deep-research": {
+    name: "Deep Research",
+    description: "深度研究功能",
+    enabled: true,
+  },
+};
+
+/**
+ * 高级模式检测器
+ */
+class ModelCapabilityDetector {
+  /**
+   * 检测模型的高级能力
+   */
+  static detectCapabilities(modelId: string, reasoning?: boolean): ModelCapabilities {
+    const normalizedModelId = modelId.toLowerCase();
+
+    return {
+      thinking: this.isThinkingModel(normalizedModelId, reasoning),
+      search: this.isSearchModel(normalizedModelId),
+      advancedSearch: this.isAdvancedSearchModel(normalizedModelId),
+      vision: this.isVisionModel(normalizedModelId),
+      mcp: this.supportsMCP(normalizedModelId),
+    };
+  }
+
+  private static isThinkingModel(modelId: string, reasoning?: boolean): boolean {
+    return modelId.includes("thinking") ||
+           modelId.includes("4.6") ||
+           reasoning === true ||
+           modelId.includes("0727-360b-api");
+  }
+
+  private static isSearchModel(modelId: string): boolean {
+    return modelId.includes("search") ||
+           modelId.includes("web") ||
+           modelId.includes("browser");
+  }
+
+  private static isAdvancedSearchModel(modelId: string): boolean {
+    return modelId.includes("advanced-search") ||
+           modelId.includes("advanced") ||
+           modelId.includes("pro-search");
+  }
+
+  private static isVisionModel(modelId: string): boolean {
+    return modelId.includes("4.5v") ||
+           modelId.includes("vision") ||
+           modelId.includes("image") ||
+           modelId.includes("multimodal");
+  }
+
+  private static supportsMCP(modelId: string): boolean {
+    // 大部分高级模型都支持 MCP
+    return this.isThinkingModel(modelId) ||
+           this.isSearchModel(modelId) ||
+           this.isAdvancedSearchModel(modelId);
+  }
+
+  /**
+   * 获取模型对应的 MCP 服务器列表
+   */
+  static getMCPServersForModel(capabilities: ModelCapabilities): string[] {
+    const servers: string[] = [];
+
+    if (capabilities.advancedSearch) {
+      servers.push("advanced-search");
+    } else if (capabilities.search) {
+      servers.push("deep-web-search");
+    }
+
+    // 添加隐藏的 MCP 服务器特性
+    if (capabilities.mcp) {
+      // 这些服务器作为隐藏特性添加到 features 中
+      debugLog("模型支持隐藏 MCP 特性: vibe-coding, ppt-maker, image-search, deep-research");
+    }
+
+    return servers;
+  }
+
+  /**
+   * 获取隐藏的 MCP 特性列表
+   */
+  static getHiddenMCPFeatures(): Array<{ type: string; server: string; status: string }> {
+    return [
+      { type: "mcp", server: "vibe-coding", status: "hidden" },
+      { type: "mcp", server: "ppt-maker", status: "hidden" },
+      { type: "mcp", server: "image-search", status: "hidden" },
+      { type: "mcp", server: "deep-research", status: "hidden" }
+    ];
+  }
+}
+
+/**
+ * 智能 Header 生成器
+ * 动态生成真实的浏览器请求头
+ */
+class SmartHeaderGenerator {
+  private static cachedHeaders: Record<string, string> | null = null;
+  private static cacheExpiry: number = 0;
+  private static readonly CACHE_DURATION = 5 * 60 * 1000; // 5分钟缓存
+
+  /**
+   * 生成智能浏览器头部
+   */
+  static async generateHeaders(chatId: string = ""): Promise<Record<string, string>> {
+    // 检查缓存
+    const now = Date.now();
+    if (this.cachedHeaders && this.cacheExpiry > now) {
+      const headers = { ...this.cachedHeaders };
+      if (chatId) {
+        headers["Referer"] = `${ORIGIN_BASE}/c/${chatId}`;
+      }
+      return headers;
+    }
+
+    // 生成新的头部
+    const headers = await this.generateFreshHeaders();
+    this.cachedHeaders = headers;
+    this.cacheExpiry = now + this.CACHE_DURATION;
+
+    debugLog("智能 Header 已生成并缓存");
+    return headers;
+  }
+
+  private static async generateFreshHeaders(): Promise<Record<string, string>> {
+    // 随机选择浏览器配置
+    const browserConfigs = [
+      {
+        ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+        secChUa: '"Chromium";v="140", "Not=A?Brand";v="24", "Google Chrome";v="140"',
+        version: "140.0.0.0"
+      },
+      {
+        ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+        secChUa: '"Chromium";v="139", "Not=A?Brand";v="24", "Google Chrome";v="139"',
+        version: "139.0.0.0"
+      },
+      {
+        ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
+        secChUa: '"Not_A Brand";v="8", "Chromium";v="126", "Firefox";v="126"',
+        version: "126.0"
+      },
+      {
+        ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+        secChUa: '"Chromium";v="140", "Not=A?Brand";v="24", "Google Chrome";v="140"',
+        version: "140.0.0.0"
+      }
+    ];
+
+    const config = browserConfigs[Math.floor(Math.random() * browserConfigs.length)];
+
+    return {
+      // 基础头部
+      "Accept": "*/*",
+      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+      "Accept-Encoding": "gzip, deflate, br, zstd",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+      "Content-Type": "application/json",
+      "Pragma": "no-cache",
+      "Sec-Fetch-Dest": "empty",
+      "Sec-Fetch-Mode": "cors",
+      "Sec-Fetch-Site": "same-origin",
+
+      // 浏览器特定头部
+      "User-Agent": config.ua,
+      "Sec-Ch-Ua": config.secChUa,
+      "Sec-Ch-Ua-Mobile": "?0",
+      "Sec-Ch-Ua-Platform": '"Windows"',
+
+      // Z.AI 特定头部
+      "Origin": ORIGIN_BASE,
+      "Referer": `${ORIGIN_BASE}/`,
+      "X-Fe-Version": X_FE_VERSION,
+    };
+  }
+
+  /**
+   * 清除缓存
+   */
+  static clearCache(): void {
+    this.cachedHeaders = null;
+    this.cacheExpiry = 0;
+    debugLog("Header 缓存已清除");
+  }
+}
+
+/**
+ * 浏览器指纹参数生成器
+ */
+class BrowserFingerprintGenerator {
+  /**
+   * 生成完整的浏览器指纹参数
+   */
+  static generateFingerprintParams(
+    timestamp: number,
+    requestId: string,
+    token: string,
+    chatId: string = ""
+  ): Record<string, string> {
+    // 从 JWT token 提取用户 ID（多字段支持，与 Python 版本一致）
+    let userId = "guest";
+    try {
+      const tokenParts = token.split(".");
+      if (tokenParts.length === 3) {
+        const payload = JSON.parse(atob(tokenParts[1]));
+
+        // 尝试多个可能的 user_id 字段（与 Python 版本一致）
+        for (const key of ["id", "user_id", "uid", "sub"]) {
+          const val = payload[key];
+          if (typeof val === "string" || typeof val === "number") {
+            const strVal = String(val);
+            if (strVal.length > 0) {
+              userId = strVal;
+              break;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugLog("解析 JWT token 失败: %v", e);
+    }
+
+    const now = new Date(timestamp);
+    const localTime = now.toISOString().replace('T', ' ').substring(0, 23) + 'Z';
+
+    return {
+      // 基础参数
+      "timestamp": timestamp.toString(),
+      "requestId": requestId,
+      "user_id": userId,
+      "version": "0.0.1",
+      "platform": "web",
+      "token": token,
+
+      // 浏览器环境参数
+      "user_agent": BROWSER_UA,
+      "language": "zh-CN",
+      "languages": "zh-CN,zh",
+      "timezone": "Asia/Shanghai",
+      "cookie_enabled": "true",
+
+      // 屏幕参数
+      "screen_width": "2048",
+      "screen_height": "1152",
+      "screen_resolution": "2048x1152",
+      "viewport_height": "654",
+      "viewport_width": "1038",
+      "viewport_size": "1038x654",
+      "color_depth": "24",
+      "pixel_ratio": "1.25",
+
+      // URL 参数
+      "current_url": chatId ? `${ORIGIN_BASE}/c/${chatId}` : ORIGIN_BASE,
+      "pathname": chatId ? `/c/${chatId}` : "/",
+      "search": "",
+      "hash": "",
+      "host": "chat.z.ai",
+      "hostname": "chat.z.ai",
+      "protocol": "https:",
+      "referrer": "",
+      "title": "Z.ai Chat - Free AI powered by GLM-4.6 & GLM-4.5",
+
+      // 时间参数
+      "timezone_offset": "-480",
+      "local_time": localTime,
+      "utc_time": now.toUTCString(),
+
+      // 设备参数
+      "is_mobile": "false",
+      "is_touch": "false",
+      "max_touch_points": "10",
+      "browser_name": "Chrome",
+      "os_name": "Windows",
+
+      // 签名参数
+      "signature_timestamp": timestamp.toString(),
+    };
+  }
+}
+
 // 伪装前端头部（来自抓包分析）
-const X_FE_VERSION = "prod-fe-1.0.94";
-const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
-const SEC_CH_UA = "\"Chromium\";v=\"140\", \"Not=A?Brand\";v=\"24\", \"Google Chrome\";v=\"140\"";
+const X_FE_VERSION = "prod-fe-1.0.103";
+const BROWSER_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
+const SEC_CH_UA =
+  '"Chromium";v="140", "Not=A?Brand";v="24", "Google Chrome";v="140"';
 const SEC_CH_UA_MOB = "?0";
-const SEC_CH_UA_PLAT = "\"Windows\"";
+const SEC_CH_UA_PLAT = '"Windows"';
 const ORIGIN_BASE = "https://chat.z.ai";
 
 const ANON_TOKEN_ENABLED = true;
@@ -232,7 +578,8 @@ const ANON_TOKEN_ENABLED = true;
 /**
  * 环境变量配置
  */
-const UPSTREAM_URL = Deno.env.get("UPSTREAM_URL") || "https://chat.z.ai/api/chat/completions";
+const UPSTREAM_URL =
+  Deno.env.get("UPSTREAM_URL") || "https://chat.z.ai/api/chat/completions";
 const DEFAULT_KEY = Deno.env.get("DEFAULT_KEY") || "sk-your-key";
 const ZAI_TOKEN = Deno.env.get("ZAI_TOKEN") || "";
 
@@ -240,9 +587,9 @@ const ZAI_TOKEN = Deno.env.get("ZAI_TOKEN") || "";
  * 支持的模型配置
  */
 interface ModelConfig {
-  id: string;           // OpenAI API中的模型ID
-  name: string;         // 显示名称
-  upstreamId: string;   // Z.ai上游的模型ID
+  id: string; // OpenAI API中的模型ID
+  name: string; // 显示名称
+  upstreamId: string; // Z.ai上游的模型ID
   capabilities: {
     vision: boolean;
     mcp: boolean;
@@ -263,13 +610,13 @@ const SUPPORTED_MODELS: ModelConfig[] = [
     capabilities: {
       vision: false,
       mcp: true,
-      thinking: true
+      thinking: true,
     },
     defaultParams: {
       top_p: 0.95,
       temperature: 0.6,
-      max_tokens: 80000
-    }
+      max_tokens: 80000,
+    },
   },
   {
     id: "glm-4.5v",
@@ -278,12 +625,12 @@ const SUPPORTED_MODELS: ModelConfig[] = [
     capabilities: {
       vision: true,
       mcp: false,
-      thinking: true
+      thinking: true,
     },
     defaultParams: {
       top_p: 0.6,
-      temperature: 0.8
-    }
+      temperature: 0.8,
+    },
   },
   {
     id: "glm-4.6",
@@ -292,14 +639,14 @@ const SUPPORTED_MODELS: ModelConfig[] = [
     capabilities: {
       vision: false,
       mcp: true,
-      thinking: true
+      thinking: true,
     },
     defaultParams: {
       top_p: 0.95,
       temperature: 0.6,
-      max_tokens: 80000
-    }
-  }
+      max_tokens: 80000,
+    },
+  },
 ];
 
 // 默认模型
@@ -309,13 +656,17 @@ const DEFAULT_MODEL = SUPPORTED_MODELS[0];
 function getModelConfig(modelId: string): ModelConfig {
   // 标准化模型ID，处理Cherry Studio等客户端的大小写差异
   const normalizedModelId = normalizeModelId(modelId);
-  const found = SUPPORTED_MODELS.find(m => m.id === normalizedModelId);
-  
+  const found = SUPPORTED_MODELS.find((m) => m.id === normalizedModelId);
+
   if (!found) {
-    debugLog("⚠️ 未找到模型配置: %s (标准化后: %s)，使用默认模型: %s", 
-      modelId, normalizedModelId, DEFAULT_MODEL.name);
+    debugLog(
+      "⚠️ 未找到模型配置: %s (标准化后: %s)，使用默认模型: %s",
+      modelId,
+      normalizedModelId,
+      DEFAULT_MODEL.name
+    );
   }
-  
+
   return found || DEFAULT_MODEL;
 }
 
@@ -325,29 +676,29 @@ function getModelConfig(modelId: string): ModelConfig {
  */
 function normalizeModelId(modelId: string): string {
   const normalized = modelId.toLowerCase().trim();
-  
+
   // 处理常见的模型ID映射
   const modelMappings: Record<string, string> = {
-    'glm-4.5v': 'glm-4.5v',
-    'glm4.5v': 'glm-4.5v',
-    'glm_4.5v': 'glm-4.5v',
-    'gpt-4-vision-preview': 'glm-4.5v',  // 向后兼容
-    '0727-360b-api': '0727-360B-API',
-    'glm-4.5': '0727-360B-API',
-    'glm4.5': '0727-360B-API',
-    'glm_4.5': '0727-360B-API',
-    'gpt-4': '0727-360B-API',  // 向后兼容
-    'glm-4.6': 'glm-4.6',
-    'glm4.6': 'glm-4.6',
-    'glm_4.6': 'glm-4.6'
+    "glm-4.5v": "glm-4.5v",
+    "glm4.5v": "glm-4.5v",
+    "glm_4.5v": "glm-4.5v",
+    "gpt-4-vision-preview": "glm-4.5v", // 向后兼容
+    "0727-360b-api": "0727-360B-API",
+    "glm-4.5": "0727-360B-API",
+    "glm4.5": "0727-360B-API",
+    "glm_4.5": "0727-360B-API",
+    "gpt-4": "0727-360B-API", // 向后兼容
+    "glm-4.6": "glm-4.6",
+    "glm4.6": "glm-4.6",
+    "glm_4.6": "glm-4.6",
   };
-  
+
   const mapped = modelMappings[normalized];
   if (mapped) {
     debugLog("🔄 模型ID映射: %s → %s", modelId, mapped);
     return mapped;
   }
-  
+
   return normalized;
 }
 
@@ -355,16 +706,19 @@ function normalizeModelId(modelId: string): string {
  * 处理和验证全方位多模态消息
  * 支持图像、视频、文档、音频等多种媒体类型
  */
-function processMessages(messages: Message[], modelConfig: ModelConfig): Message[] {
+function processMessages(
+  messages: Message[],
+  modelConfig: ModelConfig
+): Message[] {
   const processedMessages: Message[] = [];
-  
+
   for (const message of messages) {
     const processedMessage: Message = { ...message };
-    
+
     // 检查是否为多模态消息
     if (Array.isArray(message.content)) {
       debugLog("检测到多模态消息，内容块数量: %d", message.content.length);
-      
+
       // 统计各种媒体类型
       const mediaStats = {
         text: 0,
@@ -372,119 +726,320 @@ function processMessages(messages: Message[], modelConfig: ModelConfig): Message
         videos: 0,
         documents: 0,
         audios: 0,
-        others: 0
+        others: 0,
       };
-      
+
       // 验证模型是否支持多模态
       if (!modelConfig.capabilities.vision) {
-        debugLog("警告: 模型 %s 不支持多模态，但收到了多模态消息", modelConfig.name);
+        debugLog(
+          "警告: 模型 %s 不支持多模态，但收到了多模态消息",
+          modelConfig.name
+        );
         // 只保留文本内容
         const textContent = message.content
-          .filter(block => block.type === 'text')
-          .map(block => block.text)
-          .join('\n');
+          .filter((block) => block.type === "text")
+          .map((block) => block.text)
+          .join("\n");
         processedMessage.content = textContent;
       } else {
         // GLM-4.5V 支持全方位多模态，处理所有内容类型
         for (const block of message.content) {
           switch (block.type) {
-            case 'text':
+            case "text":
               if (block.text) {
                 mediaStats.text++;
                 debugLog("📝 文本内容，长度: %d", block.text.length);
               }
               break;
-              
-            case 'image_url':
+
+            case "image_url":
               if (block.image_url?.url) {
                 mediaStats.images++;
                 const url = block.image_url.url;
-                if (url.startsWith('data:image/')) {
+                if (url.startsWith("data:image/")) {
                   const mimeMatch = url.match(/data:image\/([^;]+)/);
-                  const format = mimeMatch ? mimeMatch[1] : 'unknown';
-                  debugLog("🖼️ 图像数据: %s格式, 大小: %d字符", format, url.length);
-                } else if (url.startsWith('http')) {
+                  const format = mimeMatch ? mimeMatch[1] : "unknown";
+                  debugLog(
+                    "🖼️ 图像数据: %s格式, 大小: %d字符",
+                    format,
+                    url.length
+                  );
+                } else if (url.startsWith("http")) {
                   debugLog("🔗 图像URL: %s", url);
                 } else {
                   debugLog("⚠️ 未知图像格式: %s", url.substring(0, 50));
                 }
               }
               break;
-              
-            case 'video_url':
+
+            case "video_url":
               if (block.video_url?.url) {
                 mediaStats.videos++;
                 const url = block.video_url.url;
-                if (url.startsWith('data:video/')) {
+                if (url.startsWith("data:video/")) {
                   const mimeMatch = url.match(/data:video\/([^;]+)/);
-                  const format = mimeMatch ? mimeMatch[1] : 'unknown';
-                  debugLog("🎥 视频数据: %s格式, 大小: %d字符", format, url.length);
-                } else if (url.startsWith('http')) {
+                  const format = mimeMatch ? mimeMatch[1] : "unknown";
+                  debugLog(
+                    "🎥 视频数据: %s格式, 大小: %d字符",
+                    format,
+                    url.length
+                  );
+                } else if (url.startsWith("http")) {
                   debugLog("🔗 视频URL: %s", url);
                 } else {
                   debugLog("⚠️ 未知视频格式: %s", url.substring(0, 50));
                 }
               }
               break;
-              
-            case 'document_url':
+
+            case "document_url":
               if (block.document_url?.url) {
                 mediaStats.documents++;
                 const url = block.document_url.url;
-                if (url.startsWith('data:application/')) {
+                if (url.startsWith("data:application/")) {
                   const mimeMatch = url.match(/data:application\/([^;]+)/);
-                  const format = mimeMatch ? mimeMatch[1] : 'unknown';
-                  debugLog("📄 文档数据: %s格式, 大小: %d字符", format, url.length);
-                } else if (url.startsWith('http')) {
+                  const format = mimeMatch ? mimeMatch[1] : "unknown";
+                  debugLog(
+                    "📄 文档数据: %s格式, 大小: %d字符",
+                    format,
+                    url.length
+                  );
+                } else if (url.startsWith("http")) {
                   debugLog("🔗 文档URL: %s", url);
                 } else {
                   debugLog("⚠️ 未知文档格式: %s", url.substring(0, 50));
                 }
               }
               break;
-              
-            case 'audio_url':
+
+            case "audio_url":
               if (block.audio_url?.url) {
                 mediaStats.audios++;
                 const url = block.audio_url.url;
-                if (url.startsWith('data:audio/')) {
+                if (url.startsWith("data:audio/")) {
                   const mimeMatch = url.match(/data:audio\/([^;]+)/);
-                  const format = mimeMatch ? mimeMatch[1] : 'unknown';
-                  debugLog("🎵 音频数据: %s格式, 大小: %d字符", format, url.length);
-                } else if (url.startsWith('http')) {
+                  const format = mimeMatch ? mimeMatch[1] : "unknown";
+                  debugLog(
+                    "🎵 音频数据: %s格式, 大小: %d字符",
+                    format,
+                    url.length
+                  );
+                } else if (url.startsWith("http")) {
                   debugLog("🔗 音频URL: %s", url);
                 } else {
                   debugLog("⚠️ 未知音频格式: %s", url.substring(0, 50));
                 }
               }
               break;
-              
+
             default:
               mediaStats.others++;
               debugLog("❓ 未知内容类型: %s", block.type);
           }
         }
-        
+
         // 输出统计信息
-        const totalMedia = mediaStats.images + mediaStats.videos + mediaStats.documents + mediaStats.audios;
+        const totalMedia =
+          mediaStats.images +
+          mediaStats.videos +
+          mediaStats.documents +
+          mediaStats.audios;
         if (totalMedia > 0) {
-          debugLog("🎯 多模态内容统计: 文本(%d) 图像(%d) 视频(%d) 文档(%d) 音频(%d)", 
-            mediaStats.text, mediaStats.images, mediaStats.videos, mediaStats.documents, mediaStats.audios);
+          debugLog(
+            "🎯 多模态内容统计: 文本(%d) 图像(%d) 视频(%d) 文档(%d) 音频(%d)",
+            mediaStats.text,
+            mediaStats.images,
+            mediaStats.videos,
+            mediaStats.documents,
+            mediaStats.audios
+          );
         }
       }
-    } else if (typeof message.content === 'string') {
+    } else if (typeof message.content === "string") {
       debugLog("📝 纯文本消息，长度: %d", message.content.length);
     }
-    
+
     processedMessages.push(processedMessage);
   }
-  
+
   return processedMessages;
 }
 
 const DEBUG_MODE = Deno.env.get("DEBUG_MODE") !== "false"; // 默认为true
 const DEFAULT_STREAM = Deno.env.get("DEFAULT_STREAM") !== "false"; // 默认为true
 const DASHBOARD_ENABLED = Deno.env.get("DASHBOARD_ENABLED") !== "false"; // 默认为true
+
+/**
+ * Token 池管理系统
+ * 支持多个 Token 轮换使用，自动切换失败的 Token
+ */
+interface TokenInfo {
+  token: string;
+  isValid: boolean;
+  lastUsed: number;
+  failureCount: number;
+  isAnonymous?: boolean;
+}
+
+class TokenPool {
+  private tokens: TokenInfo[] = [];
+  private currentIndex: number = 0;
+  private anonymousToken: string | null = null;
+  private anonymousTokenExpiry: number = 0;
+
+  constructor() {
+    this.initializeTokens();
+  }
+
+  /**
+   * 初始化 Token 池
+   */
+  private initializeTokens(): void {
+    // 从环境变量读取多个 Token，用逗号分隔
+    const tokenEnv = Deno.env.get("ZAI_TOKENS");
+    if (tokenEnv) {
+      const tokenList = tokenEnv.split(",").map(t => t.trim()).filter(t => t.length > 0);
+      this.tokens = tokenList.map(token => ({
+        token,
+        isValid: true,
+        lastUsed: 0,
+        failureCount: 0
+      }));
+      debugLog("Token 池已初始化，包含 %d 个 Token", this.tokens.length);
+    } else if (ZAI_TOKEN) {
+      // 兼容单个 Token 配置
+      this.tokens = [{
+        token: ZAI_TOKEN,
+        isValid: true,
+        lastUsed: 0,
+        failureCount: 0
+      }];
+      debugLog("使用单个 Token 配置");
+    } else {
+      debugLog("⚠️ 未配置 Token，将使用匿名 Token");
+    }
+  }
+
+  /**
+   * 获取下一个可用 Token
+   */
+  async getToken(): Promise<string> {
+    // 如果有配置的 Token，尝试使用
+    if (this.tokens.length > 0) {
+      const token = this.getNextValidToken();
+      if (token) {
+        token.lastUsed = Date.now();
+        return token.token;
+      }
+    }
+
+    // 降级到匿名 Token
+    return await this.getAnonymousToken();
+  }
+
+  /**
+   * 获取下一个有效的配置 Token
+   */
+  private getNextValidToken(): TokenInfo | null {
+    const startIndex = this.currentIndex;
+
+    do {
+      const tokenInfo = this.tokens[this.currentIndex];
+      if (tokenInfo.isValid && tokenInfo.failureCount < 3) {
+        return tokenInfo;
+      }
+      this.currentIndex = (this.currentIndex + 1) % this.tokens.length;
+    } while (this.currentIndex !== startIndex);
+
+    return null; // 所有 Token 都不可用
+  }
+
+  /**
+   * 切换到下一个 Token（当前 Token 失败时调用）
+   */
+  async switchToNext(): Promise<string | null> {
+    if (this.tokens.length === 0) return null;
+
+    // 标记当前 Token 为失败
+    const currentToken = this.tokens[this.currentIndex];
+    currentToken.failureCount++;
+    if (currentToken.failureCount >= 3) {
+      currentToken.isValid = false;
+      debugLog("Token 已标记为无效: %s", currentToken.token.substring(0, 20));
+    }
+
+    // 切换到下一个
+    this.currentIndex = (this.currentIndex + 1) % this.tokens.length;
+    const nextToken = this.tokens[this.currentIndex];
+
+    if (nextToken && nextToken.isValid) {
+      debugLog("切换到下一个 Token: %s", nextToken.token.substring(0, 20));
+      nextToken.lastUsed = Date.now();
+      return nextToken.token;
+    }
+
+    return null; // 所有配置 Token 都不可用
+  }
+
+  /**
+   * 重置 Token 状态（成功调用后）
+   */
+  markSuccess(token: string): void {
+    const tokenInfo = this.tokens.find(t => t.token === token);
+    if (tokenInfo) {
+      tokenInfo.failureCount = 0;
+      tokenInfo.isValid = true;
+    }
+  }
+
+  /**
+   * 获取匿名 Token
+   */
+  private async getAnonymousToken(): Promise<string> {
+    const now = Date.now();
+
+    // 检查缓存是否有效
+    if (this.anonymousToken && this.anonymousTokenExpiry > now) {
+      return this.anonymousToken;
+    }
+
+    try {
+      this.anonymousToken = await getAnonymousToken();
+      this.anonymousTokenExpiry = now + (60 * 60 * 1000); // 1小时有效期
+      debugLog("匿名 Token 已获取并缓存");
+      return this.anonymousToken;
+    } catch (error) {
+      debugLog("获取匿名 Token 失败: %v", error);
+      throw error;
+    }
+  }
+
+  /**
+   * 清除匿名 Token 缓存
+   */
+  clearAnonymousTokenCache(): void {
+    this.anonymousToken = null;
+    this.anonymousTokenExpiry = 0;
+    debugLog("匿名 Token 缓存已清除");
+  }
+
+  /**
+   * 获取 Token 池大小
+   */
+  getPoolSize(): number {
+    return this.tokens.length;
+  }
+
+  /**
+   * 检查是否为匿名 Token
+   */
+  isAnonymousToken(token: string): boolean {
+    return this.anonymousToken === token;
+  }
+}
+
+// 全局 Token 池实例
+const tokenPool = new TokenPool();
 
 /**
  * 全局状态变量
@@ -495,10 +1050,200 @@ let stats: RequestStats = {
   successfulRequests: 0,
   failedRequests: 0,
   lastRequestTime: new Date(),
-  averageResponseTime: 0
+  averageResponseTime: 0,
 };
 
 let liveRequests: LiveRequest[] = [];
+
+/**
+ * 图像处理工具类
+ */
+class ImageProcessor {
+  /**
+   * 检测消息中是否包含图像内容
+   */
+  static hasImageContent(messages: Message[]): boolean {
+    for (const msg of messages) {
+      if (msg.role === "user") {
+        const content = msg.content;
+        if (Array.isArray(content)) {
+          for (const part of content) {
+            if (part.type === "image_url" && part.image_url?.url) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 上传图像到 Z.AI 服务器
+   */
+  static async uploadImage(imageUrl: string, token: string): Promise<UploadedFile | null> {
+    try {
+      debugLog("开始上传图像: %s", imageUrl.substring(0, 50) + "...");
+
+      // 处理 base64 图像数据
+      let imageData: Uint8Array;
+      let filename: string;
+      let mimeType: string;
+
+      if (imageUrl.startsWith("data:image/")) {
+        // 解析 base64 图像
+        const matches = imageUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+        if (!matches) {
+          throw new Error("Invalid base64 image format");
+        }
+
+        mimeType = `image/${matches[1]}`;
+        filename = `image.${matches[1]}`;
+        const base64Data = matches[2];
+        imageData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+      } else if (imageUrl.startsWith("http")) {
+        // 下载远程图像
+        const response = await fetch(imageUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to download image: ${response.statusText}`);
+        }
+
+        const contentType = response.headers.get("content-type") || "image/jpeg";
+        const extension = contentType.split("/")[1] || "jpg";
+        filename = `image.${extension}`;
+
+        const buffer = await response.arrayBuffer();
+        imageData = new Uint8Array(buffer);
+        mimeType = contentType;
+      } else {
+        throw new Error("Unsupported image URL format");
+      }
+
+      // 创建 FormData
+      const formData = new FormData();
+      const arrayBuffer = imageData.buffer.slice(imageData.byteOffset, imageData.byteOffset + imageData.byteLength) as ArrayBuffer;
+      const blob = new Blob([arrayBuffer], { type: mimeType });
+      formData.append("file", blob, filename);
+
+      // 上传到 Z.AI
+      const uploadResponse = await fetch("https://chat.z.ai/api/files", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Origin": ORIGIN_BASE,
+          "Referer": `${ORIGIN_BASE}/`,
+        },
+        body: formData,
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error(`Upload failed: ${uploadResponse.statusText}`);
+      }
+
+      const uploadResult = await uploadResponse.json() as any;
+      debugLog("图像上传成功: %s", uploadResult.id);
+
+      return {
+        id: uploadResult.id,
+        filename: uploadResult.filename || filename,
+        size: imageData.length,
+        type: mimeType,
+        url: uploadResult.url,
+      };
+    } catch (error) {
+      debugLog("图像上传失败: %v", error);
+      return null;
+    }
+  }
+
+  /**
+   * 处理消息中的图像内容，返回处理后的消息和上传的文件列表
+   */
+  static async processImages(
+    messages: Message[],
+    token: string,
+    isVisionModel: boolean = false
+  ): Promise<{ processedMessages: Message[], uploadedFiles: UploadedFile[], uploadedFilesMap: Map<string, UploadedFile> }> {
+    const processedMessages: Message[] = [];
+    const uploadedFiles: UploadedFile[] = [];
+    const uploadedFilesMap = new Map<string, UploadedFile>();
+
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      const processedMsg: Message = { ...msg };
+
+      if (msg.role === "user" && Array.isArray(msg.content)) {
+        const newContent: any[] = [];
+
+        for (const part of msg.content) {
+          if (part.type === "image_url" && part.image_url?.url) {
+            const imageUrl = part.image_url.url;
+
+            // 上传图像
+            const uploadedFile = await this.uploadImage(imageUrl, token);
+            if (uploadedFile) {
+              if (isVisionModel) {
+                // GLM-4.5V: 保留在消息中，但转换 URL 格式
+                const newUrl = `${uploadedFile.id}_${uploadedFile.filename}`;
+                newContent.push({
+                  type: "image_url",
+                  image_url: { url: newUrl }
+                });
+                uploadedFilesMap.set(imageUrl, uploadedFile);
+                debugLog("GLM-4.5V 图像 URL 已转换: %s -> %s", imageUrl.substring(0, 50), newUrl);
+              } else {
+                // 非视觉模型: 添加到文件列表，从消息中移除
+                uploadedFiles.push(uploadedFile);
+                debugLog("图像已添加到文件列表: %s", uploadedFile.id);
+              }
+            }
+          } else if (part.type === "text") {
+            newContent.push(part);
+          }
+        }
+
+        // 如果只有文本内容，转换为字符串格式
+        if (newContent.length === 1 && newContent[0].type === "text") {
+          processedMsg.content = newContent[0].text;
+        } else if (newContent.length > 0) {
+          processedMsg.content = newContent;
+        } else {
+          processedMsg.content = "";
+        }
+      }
+
+      processedMessages.push(processedMsg);
+    }
+
+    return {
+      processedMessages,
+      uploadedFiles,
+      uploadedFilesMap
+    };
+  }
+
+  /**
+   * 提取最后一条用户消息的文本内容
+   */
+  static extractLastUserContent(messages: Message[]): string {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role === "user") {
+        const content = msg.content;
+        if (typeof content === "string") {
+          return content;
+        } else if (Array.isArray(content)) {
+          for (const part of content) {
+            if (part.type === "text" && part.text) {
+              return part.text;
+            }
+          }
+        }
+      }
+    }
+    return "";
+  }
+}
 
 /**
  * 工具函数
@@ -510,28 +1255,40 @@ function debugLog(format: string, ...args: unknown[]): void {
   }
 }
 
-function recordRequestStats(startTime: number, path: string, status: number): void {
+function recordRequestStats(
+  startTime: number,
+  path: string,
+  status: number
+): void {
   const duration = Date.now() - startTime;
-  
+
   stats.totalRequests++;
   stats.lastRequestTime = new Date();
-  
+
   if (status >= 200 && status < 300) {
     stats.successfulRequests++;
   } else {
     stats.failedRequests++;
   }
-  
+
   // 更新平均响应时间
   if (stats.totalRequests > 0) {
-    const totalDuration = stats.averageResponseTime * (stats.totalRequests - 1) + duration;
+    const totalDuration =
+      stats.averageResponseTime * (stats.totalRequests - 1) + duration;
     stats.averageResponseTime = totalDuration / stats.totalRequests;
   } else {
     stats.averageResponseTime = duration;
   }
 }
 
-function addLiveRequest(method: string, path: string, status: number, duration: number, userAgent: string, model?: string): void {
+function addLiveRequest(
+  method: string,
+  path: string,
+  status: number,
+  duration: number,
+  userAgent: string,
+  model?: string
+): void {
   const request: LiveRequest = {
     id: Date.now().toString(),
     timestamp: new Date(),
@@ -540,11 +1297,11 @@ function addLiveRequest(method: string, path: string, status: number, duration: 
     status,
     duration,
     userAgent,
-    model
+    model,
   };
-  
+
   liveRequests.push(request);
-  
+
   // 只保留最近的100条请求
   if (liveRequests.length > 100) {
     liveRequests = liveRequests.slice(1);
@@ -558,18 +1315,18 @@ function getLiveRequestsData(): string {
       debugLog("liveRequests不是数组，重置为空数组");
       liveRequests = [];
     }
-    
+
     // 确保返回的数据格式与前端期望的一致
-    const requestData = liveRequests.map(req => ({
+    const requestData = liveRequests.map((req) => ({
       id: req.id || "",
       timestamp: req.timestamp || new Date(),
       method: req.method || "",
       path: req.path || "",
       status: req.status || 0,
       duration: req.duration || 0,
-      user_agent: req.userAgent || ""
+      user_agent: req.userAgent || "",
     }));
-    
+
     return JSON.stringify(requestData);
   } catch (error) {
     debugLog("获取实时请求数据失败: %v", error);
@@ -587,18 +1344,18 @@ function getStatsData(): string {
         successfulRequests: 0,
         failedRequests: 0,
         lastRequestTime: new Date(),
-        averageResponseTime: 0
+        averageResponseTime: 0,
       };
     }
-    
+
     // 确保返回的数据格式与前端期望的一致
     const statsData = {
       totalRequests: stats.totalRequests || 0,
       successfulRequests: stats.successfulRequests || 0,
       failedRequests: stats.failedRequests || 0,
-      averageResponseTime: stats.averageResponseTime || 0
+      averageResponseTime: stats.averageResponseTime || 0,
     };
-    
+
     return JSON.stringify(statsData);
   } catch (error) {
     debugLog("获取统计数据失败: %v", error);
@@ -606,7 +1363,7 @@ function getStatsData(): string {
       totalRequests: 0,
       successfulRequests: 0,
       failedRequests: 0,
-      averageResponseTime: 0
+      averageResponseTime: 0,
     });
   }
 }
@@ -620,20 +1377,23 @@ function getClientIP(request: Request): string {
       return ips[0].trim();
     }
   }
-  
+
   // 检查X-Real-IP头
   const xri = request.headers.get("X-Real-IP");
   if (xri) {
     return xri;
   }
-  
+
   // 对于Deno Deploy，我们无法直接获取RemoteAddr，返回一个默认值
   return "unknown";
 }
 
 function setCORSHeaders(headers: Headers): void {
   headers.set("Access-Control-Allow-Origin", "*");
-  headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  headers.set(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, DELETE, OPTIONS"
+  );
   headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
   headers.set("Access-Control-Allow-Credentials", "true");
 }
@@ -642,7 +1402,7 @@ function validateApiKey(authHeader: string | null): boolean {
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return false;
   }
-  
+
   const apiKey = authHeader.substring(7);
   return apiKey === DEFAULT_KEY;
 }
@@ -653,33 +1413,34 @@ async function getAnonymousToken(): Promise<string> {
       method: "GET",
       headers: {
         "User-Agent": BROWSER_UA,
-        "Accept": "*/*",
+        Accept: "*/*",
         "Accept-Language": "zh-CN,zh;q=0.9",
         "X-FE-Version": X_FE_VERSION,
         "sec-ch-ua": SEC_CH_UA,
         "sec-ch-ua-mobile": SEC_CH_UA_MOB,
         "sec-ch-ua-platform": SEC_CH_UA_PLAT,
-        "Origin": ORIGIN_BASE,
-        "Referer": `${ORIGIN_BASE}/`
-      }
+        Origin: ORIGIN_BASE,
+        Referer: `${ORIGIN_BASE}/`,
+      },
     });
-    
+
     if (!response.ok) {
-      throw new Error(`Anonymous token request failed with status ${response.status}`);
+      throw new Error(
+        `Anonymous token request failed with status ${response.status}`
+      );
     }
-    
-    const data = await response.json() as { token: string };
+
+    const data = (await response.json()) as { token: string };
     if (!data.token) {
       throw new Error("Anonymous token is empty");
     }
-    
+
     return data.token;
   } catch (error) {
     debugLog("获取匿名token失败: %v", error);
     throw error;
   }
 }
-
 
 /**
  * 生成Z.ai API请求签名
@@ -688,7 +1449,11 @@ async function getAnonymousToken(): Promise<string> {
  * @param timestamp 时间戳 (毫秒)
  * @returns { signature: string, timestamp: number }
  */
-async function generateSignature(e: string, t: string, timestamp: number): Promise<{ signature: string, timestamp: string }> {
+async function generateSignature(
+  e: string,
+  t: string,
+  timestamp: number
+): Promise<{ signature: string; timestamp: string }> {
   const timestampStr = String(timestamp);
 
   // 1. 对消息内容进行Base64编码
@@ -701,11 +1466,32 @@ async function generateSignature(e: string, t: string, timestamp: number): Promi
   // 3. 计算5分钟时间窗口
   const timeWindow = Math.floor(timestamp / (5 * 60 * 1000));
 
-  // 4. 第一层 HMAC，生成中间密钥
-  const firstKeyMaterial = new TextEncoder().encode("junjie");
+  // 4. 获取签名密钥
+  const secretEnv = Deno.env.get("ZAI_SIGNING_SECRET");
+  let rootKey: Uint8Array;
+
+  if (secretEnv) {
+    // 从环境变量读取密钥
+    if (/^[0-9a-fA-F]+$/.test(secretEnv) && secretEnv.length % 2 === 0) {
+      // HEX 格式
+      rootKey = new Uint8Array(secretEnv.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
+    } else {
+      // UTF-8 格式
+      rootKey = new TextEncoder().encode(secretEnv);
+    }
+    debugLog("使用环境变量密钥: %s", secretEnv.substring(0, 10) + "...");
+  } else {
+    // 使用新的默认密钥（与 Python 版本一致）
+    const defaultKeyHex = "6b65792d40404040292929282928283929292d787878782626262525252525";
+    rootKey = new Uint8Array(defaultKeyHex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
+    debugLog("使用默认密钥");
+  }
+
+  // 5. 第一层 HMAC，生成中间密钥
+  const rootKeyBuffer = rootKey.buffer.slice(rootKey.byteOffset, rootKey.byteOffset + rootKey.byteLength) as ArrayBuffer;
   const firstHmacKey = await crypto.subtle.importKey(
     "raw",
-    firstKeyMaterial,
+    rootKeyBuffer,
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"]
@@ -716,8 +1502,8 @@ async function generateSignature(e: string, t: string, timestamp: number): Promi
     new TextEncoder().encode(String(timeWindow))
   );
   const intermediateKey = Array.from(new Uint8Array(firstSignatureBuffer))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 
   // 5. 第二层 HMAC，生成最终签名
   const secondKeyMaterial = new TextEncoder().encode(intermediateKey);
@@ -734,13 +1520,13 @@ async function generateSignature(e: string, t: string, timestamp: number): Promi
     new TextEncoder().encode(stringToSign)
   );
   const signature = Array.from(new Uint8Array(finalSignatureBuffer))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 
   debugLog("新版签名生成成功: %s", signature);
   return {
-      signature,
-      timestamp: timestampStr
+    signature,
+    timestamp: timestampStr,
   };
 }
 
@@ -752,14 +1538,27 @@ async function callUpstreamWithHeaders(
   try {
     debugLog("调用上游API: %s", UPSTREAM_URL);
 
-    // 1. 解码JWT获取user_id
+    // 1. 解码JWT获取user_id（多字段支持，与 Python 版本一致）
     let userId = "unknown";
     try {
-      const tokenParts = authToken.split('.');
+      const tokenParts = authToken.split(".");
       if (tokenParts.length === 3) {
-        const payload = JSON.parse(new TextDecoder().decode(decodeBase64(tokenParts[1])));
-        userId = payload.id || userId;
-        debugLog("从JWT解析到 user_id: %s", userId);
+        const payload = JSON.parse(
+          new TextDecoder().decode(decodeBase64(tokenParts[1]))
+        );
+
+        // 尝试多个可能的 user_id 字段（与 Python 版本一致）
+        for (const key of ["id", "user_id", "uid", "sub"]) {
+          const val = payload[key];
+          if (typeof val === "string" || typeof val === "number") {
+            const strVal = String(val);
+            if (strVal.length > 0) {
+              userId = strVal;
+              debugLog("从JWT解析到 user_id: %s (字段: %s)", userId, key);
+              break;
+            }
+          }
+        }
       }
     } catch (e) {
       debugLog("解析JWT失败: %v", e);
@@ -768,9 +1567,7 @@ async function callUpstreamWithHeaders(
     // 2. 准备签名所需参数
     const timestamp = Date.now();
     const requestId = crypto.randomUUID();
-    const userMessage = upstreamReq.messages.filter(m => m.role === 'user').pop()?.content;
-    const lastMessageContent = typeof userMessage === 'string' ? userMessage :
-      (Array.isArray(userMessage) ? userMessage.find(c => c.type === 'text')?.text || "" : "");
+    const lastMessageContent = ImageProcessor.extractLastUserContent(upstreamReq.messages);
 
     if (!lastMessageContent) {
       throw new Error("无法获取用于签名的用户消息内容");
@@ -779,43 +1576,71 @@ async function callUpstreamWithHeaders(
     const e = `requestId,${requestId},timestamp,${timestamp},user_id,${userId}`;
 
     // 3. 生成新签名
-    const { signature } = await generateSignature(e, lastMessageContent, timestamp);
+    const { signature } = await generateSignature(
+      e,
+      lastMessageContent,
+      timestamp
+    );
     debugLog("生成新版签名: %s", signature);
 
     const reqBody = JSON.stringify(upstreamReq);
     debugLog("上游请求体: %s", reqBody);
 
-    // 4. 构建带新参数的URL和Headers
-    const params = new URLSearchParams({
-        timestamp: timestamp.toString(),
-        requestId: requestId,
-        user_id: userId,
-        token: authToken,
-        current_url: `${ORIGIN_BASE}/c/${refererChatID}`,
-        pathname: `/c/${refererChatID}`,
-        signature_timestamp: timestamp.toString()
-    });
+    // 4. 生成智能浏览器头部
+    const smartHeaders = await SmartHeaderGenerator.generateHeaders(refererChatID);
+
+    // 5. 生成完整的浏览器指纹参数
+    const fingerprintParams = BrowserFingerprintGenerator.generateFingerprintParams(
+      timestamp,
+      requestId,
+      authToken,
+      refererChatID
+    );
+
+    // 6. 构建完整的URL参数
+    const allParams = {
+      ...fingerprintParams,
+      signature_timestamp: timestamp.toString(),
+    };
+
+    const params = new URLSearchParams(allParams);
     const fullURL = `${UPSTREAM_URL}?${params.toString()}`;
+
+    // 7. 合并头部
+    const finalHeaders = {
+      ...smartHeaders,
+      "Authorization": `Bearer ${authToken}`,
+      "X-Signature": signature,
+      "Accept": "application/json, text/event-stream",
+    };
 
     const response = await fetch(fullURL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Accept": "application/json, text/event-stream",
-        "User-Agent": BROWSER_UA,
-        "Authorization": `Bearer ${authToken}`,
-        "X-FE-Version": X_FE_VERSION,
-        "X-Signature": signature,
-        "Origin": ORIGIN_BASE,
-        "Referer": `${ORIGIN_BASE}/c/${refererChatID}`
-      },
-      body: reqBody
+      headers: finalHeaders,
+      body: reqBody,
     });
 
     debugLog("上游响应状态: %d %s", response.status, response.statusText);
+
+    // 8. 成功时标记 Token 为有效
+    tokenPool.markSuccess(authToken);
+
     return response;
   } catch (error) {
     debugLog("调用上游失败: %v", error);
+
+    // 失败时尝试切换 Token
+    try {
+      const newToken = await tokenPool.switchToNext();
+      if (newToken) {
+        debugLog("切换到新 Token 重试: %s", newToken.substring(0, 20));
+        // 递归重试一次，避免无限循环
+        return callUpstreamWithHeaders(upstreamReq, refererChatID, newToken);
+      }
+    } catch (retryError) {
+      debugLog("Token 切换重试失败: %v", retryError);
+    }
+
     throw error;
   }
 }
@@ -828,7 +1653,7 @@ function transformThinking(content: string): string {
   result = result.replace(/<Full>/g, "");
   result = result.replace(/<\/Full>/g, "");
   result = result.trim();
-  
+
   switch (THINK_TAGS_MODE as "strip" | "think" | "raw") {
     case "think":
       result = result.replace(/<details[^>]*>/g, "<thinking>");
@@ -839,7 +1664,7 @@ function transformThinking(content: string): string {
       result = result.replace(/<\/details>/g, "");
       break;
   }
-  
+
   // 处理每行前缀 "> "（包括起始位置）
   result = result.replace(/^> /, "");
   result = result.replace(/\n> /g, "\n");
@@ -855,36 +1680,48 @@ async function processUpstreamStream(
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  
+
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      
+
       buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
+      const lines = buffer.split("\n");
       buffer = lines.pop() || ""; // 保留最后一个不完整的行
-      
+
       for (const line of lines) {
         if (line.startsWith("data: ")) {
           const dataStr = line.substring(6);
           if (dataStr === "") continue;
-          
+
           debugLog("收到SSE数据: %s", dataStr);
-          
+
           try {
             const upstreamData = JSON.parse(dataStr) as UpstreamData;
-            
+
             // 错误检测
-            if (upstreamData.error || upstreamData.data.error || 
-                (upstreamData.data.inner && upstreamData.data.inner.error)) {
-              const errObj = upstreamData.error || upstreamData.data.error || 
-                           (upstreamData.data.inner && upstreamData.data.inner.error);
-              debugLog("上游错误: code=%d, detail=%s", errObj?.code, errObj?.detail);
-              
+            if (
+              upstreamData.error ||
+              upstreamData.data.error ||
+              (upstreamData.data.inner && upstreamData.data.inner.error)
+            ) {
+              const errObj =
+                upstreamData.error ||
+                upstreamData.data.error ||
+                (upstreamData.data.inner && upstreamData.data.inner.error);
+              debugLog(
+                "上游错误: code=%d, detail=%s",
+                errObj?.code,
+                errObj?.detail
+              );
+
               // 分析错误类型，特别是多模态相关错误
               const errorDetail = (errObj?.detail || "").toLowerCase();
-              if (errorDetail.includes("something went wrong") || errorDetail.includes("try again later")) {
+              if (
+                errorDetail.includes("something went wrong") ||
+                errorDetail.includes("try again later")
+              ) {
                 debugLog("🚨 Z.ai 服务器错误分析:");
                 debugLog("   📋 错误详情: %s", errObj?.detail);
                 debugLog("   🖼️  可能原因: 图片处理失败");
@@ -894,7 +1731,7 @@ async function processUpstreamStream(
                 debugLog("      3. 稍后重试 (可能是服务器负载问题)");
                 debugLog("      4. 检查图片是否损坏");
               }
-              
+
               // 发送结束chunk
               const endChunk: OpenAIResponse = {
                 id: `chatcmpl-${Date.now()}`,
@@ -905,31 +1742,41 @@ async function processUpstreamStream(
                   {
                     index: 0,
                     delta: {},
-                    finish_reason: "stop"
-                  }
-                ]
+                    finish_reason: "stop",
+                  },
+                ],
               };
-              
-              await writer.write(encoder.encode(`data: ${JSON.stringify(endChunk)}\n\n`));
+
+              await writer.write(
+                encoder.encode(`data: ${JSON.stringify(endChunk)}\n\n`)
+              );
               await writer.write(encoder.encode("data: [DONE]\n\n"));
               return;
             }
-            
-            debugLog("解析成功 - 类型: %s, 阶段: %s, 内容长度: %d, 完成: %v",
-              upstreamData.type, upstreamData.data.phase, 
-              upstreamData.data.delta_content ? upstreamData.data.delta_content.length : 0, 
-              upstreamData.data.done);
-            
+
+            debugLog(
+              "解析成功 - 类型: %s, 阶段: %s, 内容长度: %d, 完成: %v",
+              upstreamData.type,
+              upstreamData.data.phase,
+              upstreamData.data.delta_content
+                ? upstreamData.data.delta_content.length
+                : 0,
+              upstreamData.data.done
+            );
+
             // 处理内容
-            if (upstreamData.data.delta_content && upstreamData.data.delta_content !== "") {
+            if (
+              upstreamData.data.delta_content &&
+              upstreamData.data.delta_content !== ""
+            ) {
               let out = upstreamData.data.delta_content;
               if (upstreamData.data.phase === "thinking") {
                 out = transformThinking(out);
               }
-              
+
               if (out !== "") {
                 debugLog("发送内容(%s): %s", upstreamData.data.phase, out);
-                
+
                 const chunk: OpenAIResponse = {
                   id: `chatcmpl-${Date.now()}`,
                   object: "chat.completion.chunk",
@@ -938,19 +1785,21 @@ async function processUpstreamStream(
                   choices: [
                     {
                       index: 0,
-                      delta: { content: out }
-                    }
-                  ]
+                      delta: { content: out },
+                    },
+                  ],
                 };
-                
-                await writer.write(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+
+                await writer.write(
+                  encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`)
+                );
               }
             }
-            
+
             // 检查是否结束
             if (upstreamData.data.done || upstreamData.data.phase === "done") {
               debugLog("检测到流结束信号");
-              
+
               // 发送结束chunk
               const endChunk: OpenAIResponse = {
                 id: `chatcmpl-${Date.now()}`,
@@ -961,12 +1810,14 @@ async function processUpstreamStream(
                   {
                     index: 0,
                     delta: {},
-                    finish_reason: "stop"
-                  }
-                ]
+                    finish_reason: "stop",
+                  },
+                ],
               };
-              
-              await writer.write(encoder.encode(`data: ${JSON.stringify(endChunk)}\n\n`));
+
+              await writer.write(
+                encoder.encode(`data: ${JSON.stringify(endChunk)}\n\n`)
+              );
               await writer.write(encoder.encode("data: [DONE]\n\n"));
               return;
             }
@@ -982,40 +1833,42 @@ async function processUpstreamStream(
 }
 
 // 收集完整响应（用于非流式响应）
-async function collectFullResponse(body: ReadableStream<Uint8Array>): Promise<string> {
+async function collectFullResponse(
+  body: ReadableStream<Uint8Array>
+): Promise<string> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let fullContent = "";
-  
+
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      
+
       buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
+      const lines = buffer.split("\n");
       buffer = lines.pop() || ""; // 保留最后一个不完整的行
-      
+
       for (const line of lines) {
         if (line.startsWith("data: ")) {
           const dataStr = line.substring(6);
           if (dataStr === "") continue;
-          
+
           try {
             const upstreamData = JSON.parse(dataStr) as UpstreamData;
-            
+
             if (upstreamData.data.delta_content !== "") {
               let out = upstreamData.data.delta_content;
               if (upstreamData.data.phase === "thinking") {
                 out = transformThinking(out);
               }
-              
+
               if (out !== "") {
                 fullContent += out;
               }
             }
-            
+
             // 检查是否结束
             if (upstreamData.data.done || upstreamData.data.phase === "done") {
               debugLog("检测到完成信号，停止收集");
@@ -1030,7 +1883,7 @@ async function collectFullResponse(body: ReadableStream<Uint8Array>): Promise<st
   } finally {
     reader.releaseLock();
   }
-  
+
   return fullContent;
 }
 
@@ -1234,51 +2087,51 @@ async function handleIndex(request: Request): Promise<Response> {
   if (request.method !== "GET") {
     return new Response("Method not allowed", { status: 405 });
   }
-  
+
   return new Response(getIndexHTML(), {
     status: 200,
     headers: {
-      "Content-Type": "text/html; charset=utf-8"
-    }
+      "Content-Type": "text/html; charset=utf-8",
+    },
   });
 }
 
 async function handleOptions(request: Request): Promise<Response> {
   const headers = new Headers();
   setCORSHeaders(headers);
-  
+
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 200, headers });
   }
-  
+
   return new Response("Not Found", { status: 404, headers });
 }
 
 async function handleModels(request: Request): Promise<Response> {
   const headers = new Headers();
   setCORSHeaders(headers);
-  
+
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 200, headers });
   }
-  
+
   // 支持的模型
-  const models = SUPPORTED_MODELS.map(model => ({
+  const models = SUPPORTED_MODELS.map((model) => ({
     id: model.name,
-      object: "model",
-      created: Math.floor(Date.now() / 1000),
-      owned_by: "z.ai"
+    object: "model",
+    created: Math.floor(Date.now() / 1000),
+    owned_by: "z.ai",
   }));
-  
+
   const response: ModelsResponse = {
     object: "list",
-    data: models
+    data: models,
   };
-  
+
   headers.set("Content-Type", "application/json");
   return new Response(JSON.stringify(response), {
     status: 200,
-    headers
+    headers,
   });
 }
 
@@ -1287,24 +2140,28 @@ async function handleChatCompletions(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
   const userAgent = request.headers.get("User-Agent") || "";
-  
+
   debugLog("收到chat completions请求");
   debugLog("🌐 User-Agent: %s", userAgent);
-  
+
   // Cherry Studio 检测
-  const isCherryStudio = userAgent.toLowerCase().includes('cherry') || userAgent.toLowerCase().includes('studio');
+  const isCherryStudio =
+    userAgent.toLowerCase().includes("cherry") ||
+    userAgent.toLowerCase().includes("studio");
   if (isCherryStudio) {
-    debugLog("🍒 检测到 Cherry Studio 客户端版本: %s", 
-      userAgent.match(/CherryStudio\/([^\s]+)/)?.[1] || 'unknown');
+    debugLog(
+      "🍒 检测到 Cherry Studio 客户端版本: %s",
+      userAgent.match(/CherryStudio\/([^\s]+)/)?.[1] || "unknown"
+    );
   }
-  
+
   const headers = new Headers();
   setCORSHeaders(headers);
-  
+
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 200, headers });
   }
-  
+
   // 验证API Key
   const authHeader = request.headers.get("Authorization");
   if (!validateApiKey(authHeader)) {
@@ -1312,34 +2169,35 @@ async function handleChatCompletions(request: Request): Promise<Response> {
     const duration = Date.now() - startTime;
     recordRequestStats(startTime, path, 401);
     addLiveRequest(request.method, path, 401, duration, userAgent);
-    return new Response("Missing or invalid Authorization header", { 
+    return new Response("Missing or invalid Authorization header", {
       status: 401,
-      headers 
+      headers,
     });
   }
-  
+
   debugLog("API key验证通过");
-  
+
   // 读取请求体
   let body: string;
   try {
     body = await request.text();
     debugLog("📥 收到请求体长度: %d 字符", body.length);
-    
+
     // 为Cherry Studio调试：记录原始请求体（截取前1000字符避免日志过长）
-    const bodyPreview = body.length > 1000 ? body.substring(0, 1000) + "..." : body;
+    const bodyPreview =
+      body.length > 1000 ? body.substring(0, 1000) + "..." : body;
     debugLog("📄 请求体预览: %s", bodyPreview);
   } catch (error) {
     debugLog("读取请求体失败: %v", error);
     const duration = Date.now() - startTime;
     recordRequestStats(startTime, path, 400);
     addLiveRequest(request.method, path, 400, duration, userAgent);
-    return new Response("Failed to read request body", { 
+    return new Response("Failed to read request body", {
       status: 400,
-      headers 
+      headers,
     });
   }
-  
+
   // 解析请求
   let req: OpenAIRequest;
   try {
@@ -1350,30 +2208,40 @@ async function handleChatCompletions(request: Request): Promise<Response> {
     const duration = Date.now() - startTime;
     recordRequestStats(startTime, path, 400);
     addLiveRequest(request.method, path, 400, duration, userAgent);
-    return new Response("Invalid JSON", { 
+    return new Response("Invalid JSON", {
       status: 400,
-      headers 
+      headers,
     });
   }
-  
+
   // 如果客户端没有明确指定stream参数，使用默认值
   if (!body.includes('"stream"')) {
     req.stream = DEFAULT_STREAM;
     debugLog("客户端未指定stream参数，使用默认值: %v", DEFAULT_STREAM);
   }
-  
+
   // 获取模型配置
   const modelConfig = getModelConfig(req.model);
-  debugLog("请求解析成功 - 模型: %s (%s), 流式: %v, 消息数: %d", req.model, modelConfig.name, req.stream, req.messages.length);
-  
+  debugLog(
+    "请求解析成功 - 模型: %s (%s), 流式: %v, 消息数: %d",
+    req.model,
+    modelConfig.name,
+    req.stream,
+    req.messages.length
+  );
+
   // Cherry Studio 调试：详细检查每条消息
   debugLog("🔍 Cherry Studio 调试 - 检查原始消息:");
   for (let i = 0; i < req.messages.length; i++) {
     const msg = req.messages[i];
     debugLog("  消息[%d] role: %s", i, msg.role);
-    
-    if (typeof msg.content === 'string') {
-      debugLog("  消息[%d] content: 字符串类型, 长度: %d", i, msg.content.length);
+
+    if (typeof msg.content === "string") {
+      debugLog(
+        "  消息[%d] content: 字符串类型, 长度: %d",
+        i,
+        msg.content.length
+      );
       if (msg.content.length === 0) {
         debugLog("  ⚠️  消息[%d] 内容为空字符串!", i);
       } else {
@@ -1384,91 +2252,159 @@ async function handleChatCompletions(request: Request): Promise<Response> {
       for (let j = 0; j < msg.content.length; j++) {
         const block = msg.content[j];
         debugLog("    块[%d] type: %s", j, block.type);
-        if (block.type === 'text' && block.text) {
+        if (block.type === "text" && block.text) {
           debugLog("    块[%d] text: %s", j, block.text.substring(0, 50));
-        } else if (block.type === 'image_url' && block.image_url?.url) {
-          debugLog("    块[%d] image_url: %s格式, 长度: %d", j, 
-            block.image_url.url.startsWith('data:') ? 'base64' : 'url', 
-            block.image_url.url.length);
+        } else if (block.type === "image_url" && block.image_url?.url) {
+          debugLog(
+            "    块[%d] image_url: %s格式, 长度: %d",
+            j,
+            block.image_url.url.startsWith("data:") ? "base64" : "url",
+            block.image_url.url.length
+          );
         }
       }
     } else {
       debugLog("  ⚠️  消息[%d] content 类型异常: %s", i, typeof msg.content);
     }
   }
-  
+
+  // 检测模型高级能力
+  const capabilities = ModelCapabilityDetector.detectCapabilities(
+    req.model,
+    req.reasoning
+  );
+  debugLog("模型能力检测: 思考=%s, 搜索=%s, 高级搜索=%s, 视觉=%s, MCP=%s",
+    capabilities.thinking, capabilities.search, capabilities.advancedSearch,
+    capabilities.vision, capabilities.mcp);
+
   // 处理和验证消息（特别是多模态内容）
   const processedMessages = processMessages(req.messages, modelConfig);
   debugLog("消息处理完成，处理后消息数: %d", processedMessages.length);
-  
-  // 检查是否包含多模态内容
-  const hasMultimodal = processedMessages.some(msg => 
-    Array.isArray(msg.content) && 
-    msg.content.some(block => 
-      ['image_url', 'video_url', 'document_url', 'audio_url'].includes(block.type)
-    )
-  );
-  
+
+  // 使用 Token 池获取 token
+  let authToken: string;
+  try {
+    authToken = await tokenPool.getToken();
+    debugLog("Token 获取成功: %s...", authToken.substring(0, 10));
+  } catch (error) {
+    debugLog("Token 获取失败: %v", error);
+    const duration = Date.now() - startTime;
+    recordRequestStats(startTime, path, 500);
+    addLiveRequest(request.method, path, 500, duration, userAgent);
+    return new Response("Failed to get authentication token", {
+      status: 500,
+      headers,
+    });
+  }
+
+  // 检查是否包含多模态内容并使用新的图像处理器
+  const hasMultimodal = ImageProcessor.hasImageContent(req.messages);
+  let finalMessages = processedMessages;
+  let uploadedFiles: UploadedFile[] = [];
+
   if (hasMultimodal) {
-    debugLog("🎯 检测到全方位多模态请求，模型: %s", modelConfig.name);
-    if (!modelConfig.capabilities.vision) {
-      debugLog("❌ 严重错误: 模型不支持多模态，但收到了多媒体内容！");
-      debugLog("💡 Cherry Studio用户请检查: 确认选择了 'glm-4.5v' 而不是 'GLM-4.5'");
-      debugLog("🔧 模型映射状态: %s → %s (vision: %s)", 
-        req.model, modelConfig.upstreamId, modelConfig.capabilities.vision);
+    debugLog("🎯 检测到图像内容，开始处理，模型: %s", modelConfig.name);
+
+    // 检查匿名 Token 限制
+    if (tokenPool.isAnonymousToken(authToken)) {
+      debugLog("❌ 匿名 Token 不支持图像处理功能");
+      const duration = Date.now() - startTime;
+      recordRequestStats(startTime, path, 400);
+      addLiveRequest(request.method, path, 400, duration, userAgent);
+      return new Response("匿名Token不支持图像处理功能，请配置ZAI_TOKEN环境变量", {
+        status: 400,
+        headers,
+      });
+    }
+
+    if (!capabilities.vision) {
+      debugLog("❌ 严重错误: 模型不支持多模态，但收到了图像内容！");
+      debugLog(
+        "💡 Cherry Studio用户请检查: 确认选择了 'glm-4.5v' 而不是 'GLM-4.5'"
+      );
+      debugLog(
+        "🔧 模型映射状态: %s → %s (vision: %s)",
+        req.model,
+        modelConfig.upstreamId,
+        capabilities.vision
+      );
     } else {
-      debugLog("✅ GLM-4.5V支持全方位多模态理解：图像、视频、文档、音频");
-      
-      // 检查是否使用匿名token（多模态功能的重要限制）
-      if (!ZAI_TOKEN || ZAI_TOKEN.trim() === "") {
-        debugLog("⚠️ 重要警告: 正在使用匿名token处理多模态请求");
-        debugLog("💡 Z.ai的匿名token可能不支持图像/视频/文档处理");
-        debugLog("🔧 解决方案: 设置 ZAI_TOKEN 环境变量为正式的API Token");
-        debugLog("📋 如果请求失败，这很可能是token权限问题");
-      } else {
-        debugLog("✅ 使用正式API Token，支持完整多模态功能");
+      debugLog("✅ 使用高级图像处理器处理图像内容");
+
+      try {
+        // 使用新的图像处理器
+        const imageProcessResult = await ImageProcessor.processImages(
+          req.messages,
+          authToken,
+          capabilities.vision
+        );
+
+        finalMessages = imageProcessResult.processedMessages;
+        uploadedFiles = imageProcessResult.uploadedFiles;
+
+        debugLog("图像处理完成: 处理后消息数=%d, 上传文件数=%d",
+          finalMessages.length, uploadedFiles.length);
+
+      } catch (error) {
+        debugLog("图像处理失败: %v", error);
+        const duration = Date.now() - startTime;
+        recordRequestStats(startTime, path, 500);
+        addLiveRequest(request.method, path, 500, duration, userAgent);
+        return new Response("图像处理失败", {
+          status: 500,
+          headers,
+        });
       }
     }
-  } else if (modelConfig.capabilities.vision && modelConfig.id === 'glm-4.5v') {
-    debugLog("ℹ️ 使用GLM-4.5V模型但未检测到多媒体数据，仅处理文本内容");
+  } else if (capabilities.vision && modelConfig.id === "glm-4.5v") {
+    debugLog("ℹ️ 使用GLM-4.5V模型但未检测到图像数据，仅处理文本内容");
   }
-  
+
   // 生成会话相关ID
   const chatID = `${Date.now()}-${Math.floor(Date.now() / 1000)}`;
   const msgID = Date.now().toString();
-  
-  // 构造上游请求
+
+  // 获取模型对应的 MCP 服务器列表
+  const mcpServers = ModelCapabilityDetector.getMCPServersForModel(capabilities);
+  const hiddenMcpFeatures = ModelCapabilityDetector.getHiddenMCPFeatures();
+
+  // 提取用户最后消息内容（用于签名）
+  const lastUserContent = ImageProcessor.extractLastUserContent(req.messages);
+
+  // 构造上游请求（增强版）
   const upstreamReq: UpstreamRequest = {
     stream: true, // 总是使用流式从上游获取
     chat_id: chatID,
     id: msgID,
     model: modelConfig.upstreamId,
-    messages: processedMessages,
+    messages: finalMessages,
     params: modelConfig.defaultParams,
     features: {
-      enable_thinking: modelConfig.capabilities.thinking,
       image_generation: false,
-      web_search: false,
-      auto_web_search: false,
-      preview_mode: modelConfig.capabilities.vision
+      web_search: capabilities.search || capabilities.advancedSearch,
+      auto_web_search: capabilities.search || capabilities.advancedSearch,
+      preview_mode: capabilities.search || capabilities.advancedSearch,
+      flags: [],
+      features: hiddenMcpFeatures,
+      enable_thinking: capabilities.thinking,
     },
     background_tasks: {
       title_generation: false,
-      tags_generation: false
+      tags_generation: false,
     },
-    mcp_servers: modelConfig.capabilities.mcp ? [] : undefined,
+    mcp_servers: mcpServers,
     model_item: {
       id: modelConfig.upstreamId,
-      name: modelConfig.name,
+      name: req.model, // 使用原始请求的模型名
       owned_by: "openai",
       openai: {
         id: modelConfig.upstreamId,
         name: modelConfig.upstreamId,
         owned_by: "openai",
         openai: {
-          id: modelConfig.upstreamId
+          id: modelConfig.upstreamId,
         },
-        urlIdx: 1
+        urlIdx: 1,
       },
       urlIdx: 1,
       info: {
@@ -1479,70 +2415,88 @@ async function handleChatCompletions(request: Request): Promise<Response> {
         params: modelConfig.defaultParams,
         meta: {
           profile_image_url: "/static/favicon.png",
-          description: modelConfig.capabilities.vision ? "Advanced visual understanding and analysis" : "Most advanced model, proficient in coding and tool use",
+          description: capabilities.vision
+            ? "Advanced visual understanding and analysis"
+            : capabilities.thinking
+            ? "Advanced reasoning and thinking model"
+            : capabilities.search
+            ? "Web search enhanced model"
+            : "Most advanced model, proficient in coding and tool use",
           capabilities: {
-            vision: modelConfig.capabilities.vision,
+            vision: capabilities.vision,
             citations: false,
-            preview_mode: modelConfig.capabilities.vision,
-            web_search: false,
+            preview_mode: capabilities.search || capabilities.advancedSearch,
+            web_search: capabilities.search || capabilities.advancedSearch,
             language_detection: false,
             restore_n_source: false,
-            mcp: modelConfig.capabilities.mcp,
-            file_qa: modelConfig.capabilities.mcp,
+            mcp: capabilities.mcp,
+            file_qa: capabilities.mcp,
             returnFc: true,
-            returnThink: modelConfig.capabilities.thinking,
-            think: modelConfig.capabilities.thinking
-          }
-        }
-      }
+            returnThink: capabilities.thinking,
+            think: capabilities.thinking,
+          },
+        },
+      },
     },
     tool_servers: [],
     variables: {
       "{{USER_NAME}}": `Guest-${Date.now()}`,
       "{{USER_LOCATION}}": "Unknown",
-      "{{CURRENT_DATETIME}}": new Date().toLocaleString('zh-CN'),
-      "{{CURRENT_DATE}}": new Date().toLocaleDateString('zh-CN'),
-      "{{CURRENT_TIME}}": new Date().toLocaleTimeString('zh-CN'),
-      "{{CURRENT_WEEKDAY}}": new Date().toLocaleDateString('zh-CN', { weekday: 'long' }),
+      "{{CURRENT_DATETIME}}": new Date().toLocaleString("zh-CN"),
+      "{{CURRENT_DATE}}": new Date().toLocaleDateString("zh-CN"),
+      "{{CURRENT_TIME}}": new Date().toLocaleTimeString("zh-CN"),
+      "{{CURRENT_WEEKDAY}}": new Date().toLocaleDateString("zh-CN", {
+        weekday: "long",
+      }),
       "{{CURRENT_TIMEZONE}}": "Asia/Shanghai",
-      "{{USER_LANGUAGE}}": "zh-CN"
-    }
+      "{{USER_LANGUAGE}}": "zh-CN",
+    },
+    // 添加文件列表（如果有上传的图像）
+    ...(uploadedFiles.length > 0 && !capabilities.vision ? { files: uploadedFiles } : {}),
+    // 添加签名提示
+    signature_prompt: lastUserContent,
   };
-  
-  // 选择本次对话使用的token
-  let authToken = ZAI_TOKEN;
-  if (ANON_TOKEN_ENABLED) {
-    try {
-      const anonToken = await getAnonymousToken();
-      authToken = anonToken;
-      debugLog("匿名token获取成功: %s...", anonToken.substring(0, 10));
-    } catch (error) {
-      debugLog("匿名token获取失败，回退固定token: %v", error);
-    }
-  }
-  
+
   // 调用上游API
   try {
     if (req.stream) {
-      return await handleStreamResponse(upstreamReq, chatID, authToken, startTime, path, userAgent, req, modelConfig);
+      return await handleStreamResponse(
+        upstreamReq,
+        chatID,
+        authToken,
+        startTime,
+        path,
+        userAgent,
+        req,
+        modelConfig
+      );
     } else {
-      return await handleNonStreamResponse(upstreamReq, chatID, authToken, startTime, path, userAgent, req, modelConfig);
+      return await handleNonStreamResponse(
+        upstreamReq,
+        chatID,
+        authToken,
+        startTime,
+        path,
+        userAgent,
+        req,
+        modelConfig
+      );
     }
   } catch (error) {
     debugLog("调用上游失败: %v", error);
     const duration = Date.now() - startTime;
     recordRequestStats(startTime, path, 502);
     addLiveRequest(request.method, path, 502, duration, userAgent);
-    return new Response("Failed to call upstream", { 
+    return new Response("Failed to call upstream", {
       status: 502,
-      headers 
+      headers,
     });
   }
 }
 
 async function handleStreamResponse(
-  upstreamReq: UpstreamRequest, 
-  chatID: string, 
+  upstreamReq: UpstreamRequest,
+  chatID: string,
   authToken: string,
   startTime: number,
   path: string,
@@ -1551,10 +2505,14 @@ async function handleStreamResponse(
   modelConfig: ModelConfig
 ): Promise<Response> {
   debugLog("开始处理流式响应 (chat_id=%s)", chatID);
-  
+
   try {
-    const response = await callUpstreamWithHeaders(upstreamReq, chatID, authToken);
-    
+    const response = await callUpstreamWithHeaders(
+      upstreamReq,
+      chatID,
+      authToken
+    );
+
     if (!response.ok) {
       debugLog("上游返回错误状态: %d", response.status);
       const duration = Date.now() - startTime;
@@ -1562,7 +2520,7 @@ async function handleStreamResponse(
       addLiveRequest("POST", path, 502, duration, userAgent);
       return new Response("Upstream error", { status: 502 });
     }
-    
+
     if (!response.body) {
       debugLog("上游响应体为空");
       const duration = Date.now() - startTime;
@@ -1570,12 +2528,12 @@ async function handleStreamResponse(
       addLiveRequest("POST", path, 502, duration, userAgent);
       return new Response("Upstream response body is empty", { status: 502 });
     }
-    
+
     // 创建可读流
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
     const encoder = new TextEncoder();
-    
+
     // 发送第一个chunk（role）
     const firstChunk: OpenAIResponse = {
       id: `chatcmpl-${Date.now()}`,
@@ -1585,35 +2543,37 @@ async function handleStreamResponse(
       choices: [
         {
           index: 0,
-          delta: { role: "assistant" }
-        }
-      ]
+          delta: { role: "assistant" },
+        },
+      ],
     };
-    
+
     // 写入第一个chunk
     writer.write(encoder.encode(`data: ${JSON.stringify(firstChunk)}\n\n`));
-    
+
     // 处理上游SSE流
-    processUpstreamStream(response.body, writer, encoder, req.model).catch(error => {
-      debugLog("处理上游流时出错: %v", error);
-    });
-    
+    processUpstreamStream(response.body, writer, encoder, req.model).catch(
+      (error) => {
+        debugLog("处理上游流时出错: %v", error);
+      }
+    );
+
     // 记录成功请求统计
     const duration = Date.now() - startTime;
     recordRequestStats(startTime, path, 200);
     addLiveRequest("POST", path, 200, duration, userAgent, modelConfig.name);
-    
+
     return new Response(readable, {
       status: 200,
       headers: {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
+        Connection: "keep-alive",
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type, Authorization",
-        "Access-Control-Allow-Credentials": "true"
-      }
+        "Access-Control-Allow-Credentials": "true",
+      },
     });
   } catch (error) {
     debugLog("处理流式响应时出错: %v", error);
@@ -1625,8 +2585,8 @@ async function handleStreamResponse(
 }
 
 async function handleNonStreamResponse(
-  upstreamReq: UpstreamRequest, 
-  chatID: string, 
+  upstreamReq: UpstreamRequest,
+  chatID: string,
   authToken: string,
   startTime: number,
   path: string,
@@ -1635,10 +2595,14 @@ async function handleNonStreamResponse(
   modelConfig: ModelConfig
 ): Promise<Response> {
   debugLog("开始处理非流式响应 (chat_id=%s)", chatID);
-  
+
   try {
-    const response = await callUpstreamWithHeaders(upstreamReq, chatID, authToken);
-    
+    const response = await callUpstreamWithHeaders(
+      upstreamReq,
+      chatID,
+      authToken
+    );
+
     if (!response.ok) {
       debugLog("上游返回错误状态: %d", response.status);
       const duration = Date.now() - startTime;
@@ -1646,7 +2610,7 @@ async function handleNonStreamResponse(
       addLiveRequest("POST", path, 502, duration, userAgent);
       return new Response("Upstream error", { status: 502 });
     }
-    
+
     if (!response.body) {
       debugLog("上游响应体为空");
       const duration = Date.now() - startTime;
@@ -1654,11 +2618,11 @@ async function handleNonStreamResponse(
       addLiveRequest("POST", path, 502, duration, userAgent);
       return new Response("Upstream response body is empty", { status: 502 });
     }
-    
+
     // 收集完整响应
     const finalContent = await collectFullResponse(response.body);
     debugLog("内容收集完成，最终长度: %d", finalContent.length);
-    
+
     // 构造完整响应
     const openAIResponse: OpenAIResponse = {
       id: `chatcmpl-${Date.now()}`,
@@ -1670,23 +2634,23 @@ async function handleNonStreamResponse(
           index: 0,
           message: {
             role: "assistant",
-            content: finalContent
+            content: finalContent,
           },
-          finish_reason: "stop"
-        }
+          finish_reason: "stop",
+        },
       ],
       usage: {
         prompt_tokens: 0,
         completion_tokens: 0,
-        total_tokens: 0
-      }
+        total_tokens: 0,
+      },
     };
-    
+
     // 记录成功请求统计
     const duration = Date.now() - startTime;
     recordRequestStats(startTime, path, 200);
     addLiveRequest("POST", path, 200, duration, userAgent, modelConfig.name);
-    
+
     return new Response(JSON.stringify(openAIResponse), {
       status: 200,
       headers: {
@@ -1694,21 +2658,23 @@ async function handleNonStreamResponse(
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type, Authorization",
-        "Access-Control-Allow-Credentials": "true"
-      }
+        "Access-Control-Allow-Credentials": "true",
+      },
     });
   } catch (error) {
     debugLog("处理非流式响应时出错: %v", error);
     const duration = Date.now() - startTime;
     recordRequestStats(startTime, path, 502);
     addLiveRequest("POST", path, 502, duration, userAgent);
-    return new Response("Failed to process non-stream response", { status: 502 });
+    return new Response("Failed to process non-stream response", {
+      status: 502,
+    });
   }
 }
 
 /**
  * 生成 Dashboard 监控页面HTML模板
- * 提供实时API调用监控和统计信息展示  
+ * 提供实时API调用监控和统计信息展示
  * @returns string 完整的HTML页面内容
  */
 function getDashboardHTML(): string {
@@ -2086,16 +3052,16 @@ function getDashboardHTML(): string {
  * @returns Promise<Response> HTML响应
  */
 async function handleDashboard(request: Request): Promise<Response> {
-if (request.method !== "GET") {
-return new Response("Method not allowed", { status: 405 });
-}
+  if (request.method !== "GET") {
+    return new Response("Method not allowed", { status: 405 });
+  }
 
-return new Response(getDashboardHTML(), {
-status: 200,
-headers: {
-  "Content-Type": "text/html; charset=utf-8"
-}
-});
+  return new Response(getDashboardHTML(), {
+    status: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+    },
+  });
 }
 
 // 处理Dashboard统计数据
@@ -2103,8 +3069,8 @@ async function handleDashboardStats(_request: Request): Promise<Response> {
   return new Response(getStatsData(), {
     status: 200,
     headers: {
-      "Content-Type": "application/json"
-    }
+      "Content-Type": "application/json",
+    },
   });
 }
 
@@ -2112,14 +3078,13 @@ async function handleDashboardRequests(_request: Request): Promise<Response> {
   return new Response(getLiveRequestsData(), {
     status: 200,
     headers: {
-      "Content-Type": "application/json"
-    }
+      "Content-Type": "application/json",
+    },
   });
 }
 
-
 function getDocsHTML(): string {
-return `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -2618,107 +3583,161 @@ async function handleDocs(request: Request): Promise<Response> {
   return new Response(getDocsHTML(), {
     status: 200,
     headers: {
-      "Content-Type": "text/html; charset=utf-8"
-    }
+      "Content-Type": "text/html; charset=utf-8",
+    },
   });
 }
 
 // 主HTTP服务器
 async function main() {
-console.log(`OpenAI兼容API服务器启动`);
-console.log(`支持的模型: ${SUPPORTED_MODELS.map(m => `${m.id} (${m.name})`).join(', ')}`);
-console.log(`上游: ${UPSTREAM_URL}`);
-console.log(`Debug模式: ${DEBUG_MODE}`);
-console.log(`默认流式响应: ${DEFAULT_STREAM}`);
-console.log(`Dashboard启用: ${DASHBOARD_ENABLED}`);
+  console.log(`OpenAI兼容API服务器启动`);
+  console.log(
+    `支持的模型: ${SUPPORTED_MODELS.map((m) => `${m.id} (${m.name})`).join(
+      ", "
+    )}`
+  );
+  console.log(`上游: ${UPSTREAM_URL}`);
+  console.log(`Debug模式: ${DEBUG_MODE}`);
+  console.log(`默认流式响应: ${DEFAULT_STREAM}`);
+  console.log(`Dashboard启用: ${DASHBOARD_ENABLED}`);
 
-// 检测是否在Deno Deploy上运行
-const isDenoDeploy = Deno.env.get("DENO_DEPLOYMENT_ID") !== undefined;
+  // 检测是否在Deno Deploy上运行
+  const isDenoDeploy = Deno.env.get("DENO_DEPLOYMENT_ID") !== undefined;
 
-if (isDenoDeploy) {
-  // Deno Deploy环境
-  console.log("运行在Deno Deploy环境中");
-  Deno.serve(handleRequest);
-} else {
-  // 本地或自托管环境
-  const port = parseInt(Deno.env.get("PORT") || "9090");
-  console.log(`运行在本地环境中，端口: ${port}`);
-  
-  if (DASHBOARD_ENABLED) {
-    console.log(`Dashboard已启用，访问地址: http://localhost:${port}/dashboard`);
+  if (isDenoDeploy) {
+    // Deno Deploy环境
+    console.log("运行在Deno Deploy环境中");
+    Deno.serve(handleRequest);
+  } else {
+    // 本地或自托管环境
+    const port = parseInt(Deno.env.get("PORT") || "9090");
+    console.log(`运行在本地环境中，端口: ${port}`);
+
+    if (DASHBOARD_ENABLED) {
+      console.log(
+        `Dashboard已启用，访问地址: http://localhost:${port}/dashboard`
+      );
+    }
+
+    const server = Deno.listen({ port });
+
+    for await (const conn of server) {
+      handleHttp(conn);
+    }
   }
-  
-  const server = Deno.listen({ port });
-  
-  for await (const conn of server) {
-    handleHttp(conn);
-  }
-}
 }
 
 // 处理HTTP连接（用于本地环境）
 async function handleHttp(conn: Deno.Conn) {
   const httpConn = Deno.serveHttp(conn);
-  
+
   while (true) {
     const requestEvent = await httpConn.nextRequest();
     if (!requestEvent) break;
-    
+
     const { request, respondWith } = requestEvent;
     const url = new URL(request.url);
     const startTime = Date.now();
     const userAgent = request.headers.get("User-Agent") || "";
 
-try {
-  // 路由分发
-  if (url.pathname === "/") {
-    const response = await handleIndex(request);
-    await respondWith(response);
-    recordRequestStats(startTime, url.pathname, response.status);
-    addLiveRequest(request.method, url.pathname, response.status, Date.now() - startTime, userAgent);
-  } else if (url.pathname === "/v1/models") {
-    const response = await handleModels(request);
-    await respondWith(response);
-    recordRequestStats(startTime, url.pathname, response.status);
-    addLiveRequest(request.method, url.pathname, response.status, Date.now() - startTime, userAgent);
-  } else if (url.pathname === "/v1/chat/completions") {
-    const response = await handleChatCompletions(request);
-    await respondWith(response);
-    // 请求统计已在handleChatCompletions中记录
-  } else if (url.pathname === "/docs") {
-    const response = await handleDocs(request);
-    await respondWith(response);
-    recordRequestStats(startTime, url.pathname, response.status);
-    addLiveRequest(request.method, url.pathname, response.status, Date.now() - startTime, userAgent);
-  } else if (url.pathname === "/dashboard" && DASHBOARD_ENABLED) {
-    const response = await handleDashboard(request);
-    await respondWith(response);
-    recordRequestStats(startTime, url.pathname, response.status);
-    addLiveRequest(request.method, url.pathname, response.status, Date.now() - startTime, userAgent);
-  } else if (url.pathname === "/dashboard/stats" && DASHBOARD_ENABLED) {
-    const response = await handleDashboardStats(request);
-    await respondWith(response);
-    recordRequestStats(startTime, url.pathname, response.status);
-    addLiveRequest(request.method, url.pathname, response.status, Date.now() - startTime, userAgent);
-  } else if (url.pathname === "/dashboard/requests" && DASHBOARD_ENABLED) {
-    const response = await handleDashboardRequests(request);
-    await respondWith(response);
-    recordRequestStats(startTime, url.pathname, response.status);
-    addLiveRequest(request.method, url.pathname, response.status, Date.now() - startTime, userAgent);
-  } else {
-    const response = await handleOptions(request);
-    await respondWith(response);
-    recordRequestStats(startTime, url.pathname, response.status);
-    addLiveRequest(request.method, url.pathname, response.status, Date.now() - startTime, userAgent);
+    try {
+      // 路由分发
+      if (url.pathname === "/") {
+        const response = await handleIndex(request);
+        await respondWith(response);
+        recordRequestStats(startTime, url.pathname, response.status);
+        addLiveRequest(
+          request.method,
+          url.pathname,
+          response.status,
+          Date.now() - startTime,
+          userAgent
+        );
+      } else if (url.pathname === "/v1/models") {
+        const response = await handleModels(request);
+        await respondWith(response);
+        recordRequestStats(startTime, url.pathname, response.status);
+        addLiveRequest(
+          request.method,
+          url.pathname,
+          response.status,
+          Date.now() - startTime,
+          userAgent
+        );
+      } else if (url.pathname === "/v1/chat/completions") {
+        const response = await handleChatCompletions(request);
+        await respondWith(response);
+        // 请求统计已在handleChatCompletions中记录
+      } else if (url.pathname === "/docs") {
+        const response = await handleDocs(request);
+        await respondWith(response);
+        recordRequestStats(startTime, url.pathname, response.status);
+        addLiveRequest(
+          request.method,
+          url.pathname,
+          response.status,
+          Date.now() - startTime,
+          userAgent
+        );
+      } else if (url.pathname === "/dashboard" && DASHBOARD_ENABLED) {
+        const response = await handleDashboard(request);
+        await respondWith(response);
+        recordRequestStats(startTime, url.pathname, response.status);
+        addLiveRequest(
+          request.method,
+          url.pathname,
+          response.status,
+          Date.now() - startTime,
+          userAgent
+        );
+      } else if (url.pathname === "/dashboard/stats" && DASHBOARD_ENABLED) {
+        const response = await handleDashboardStats(request);
+        await respondWith(response);
+        recordRequestStats(startTime, url.pathname, response.status);
+        addLiveRequest(
+          request.method,
+          url.pathname,
+          response.status,
+          Date.now() - startTime,
+          userAgent
+        );
+      } else if (url.pathname === "/dashboard/requests" && DASHBOARD_ENABLED) {
+        const response = await handleDashboardRequests(request);
+        await respondWith(response);
+        recordRequestStats(startTime, url.pathname, response.status);
+        addLiveRequest(
+          request.method,
+          url.pathname,
+          response.status,
+          Date.now() - startTime,
+          userAgent
+        );
+      } else {
+        const response = await handleOptions(request);
+        await respondWith(response);
+        recordRequestStats(startTime, url.pathname, response.status);
+        addLiveRequest(
+          request.method,
+          url.pathname,
+          response.status,
+          Date.now() - startTime,
+          userAgent
+        );
+      }
+    } catch (error) {
+      debugLog("处理请求时出错: %v", error);
+      const response = new Response("Internal Server Error", { status: 500 });
+      await respondWith(response);
+      recordRequestStats(startTime, url.pathname, 500);
+      addLiveRequest(
+        request.method,
+        url.pathname,
+        500,
+        Date.now() - startTime,
+        userAgent
+      );
+    }
   }
-} catch (error) {
-  debugLog("处理请求时出错: %v", error);
-  const response = new Response("Internal Server Error", { status: 500 });
-  await respondWith(response);
-  recordRequestStats(startTime, url.pathname, 500);
-  addLiveRequest(request.method, url.pathname, 500, Date.now() - startTime, userAgent);
-}
-}
 }
 
 // 处理HTTP请求（用于Deno Deploy环境）
@@ -2732,12 +3751,24 @@ async function handleRequest(request: Request): Promise<Response> {
     if (url.pathname === "/") {
       const response = await handleIndex(request);
       recordRequestStats(startTime, url.pathname, response.status);
-      addLiveRequest(request.method, url.pathname, response.status, Date.now() - startTime, userAgent);
+      addLiveRequest(
+        request.method,
+        url.pathname,
+        response.status,
+        Date.now() - startTime,
+        userAgent
+      );
       return response;
     } else if (url.pathname === "/v1/models") {
       const response = await handleModels(request);
       recordRequestStats(startTime, url.pathname, response.status);
-      addLiveRequest(request.method, url.pathname, response.status, Date.now() - startTime, userAgent);
+      addLiveRequest(
+        request.method,
+        url.pathname,
+        response.status,
+        Date.now() - startTime,
+        userAgent
+      );
       return response;
     } else if (url.pathname === "/v1/chat/completions") {
       const response = await handleChatCompletions(request);
@@ -2746,33 +3777,69 @@ async function handleRequest(request: Request): Promise<Response> {
     } else if (url.pathname === "/docs") {
       const response = await handleDocs(request);
       recordRequestStats(startTime, url.pathname, response.status);
-      addLiveRequest(request.method, url.pathname, response.status, Date.now() - startTime, userAgent);
+      addLiveRequest(
+        request.method,
+        url.pathname,
+        response.status,
+        Date.now() - startTime,
+        userAgent
+      );
       return response;
     } else if (url.pathname === "/dashboard" && DASHBOARD_ENABLED) {
       const response = await handleDashboard(request);
       recordRequestStats(startTime, url.pathname, response.status);
-      addLiveRequest(request.method, url.pathname, response.status, Date.now() - startTime, userAgent);
+      addLiveRequest(
+        request.method,
+        url.pathname,
+        response.status,
+        Date.now() - startTime,
+        userAgent
+      );
       return response;
     } else if (url.pathname === "/dashboard/stats" && DASHBOARD_ENABLED) {
       const response = await handleDashboardStats(request);
       recordRequestStats(startTime, url.pathname, response.status);
-      addLiveRequest(request.method, url.pathname, response.status, Date.now() - startTime, userAgent);
+      addLiveRequest(
+        request.method,
+        url.pathname,
+        response.status,
+        Date.now() - startTime,
+        userAgent
+      );
       return response;
     } else if (url.pathname === "/dashboard/requests" && DASHBOARD_ENABLED) {
       const response = await handleDashboardRequests(request);
       recordRequestStats(startTime, url.pathname, response.status);
-      addLiveRequest(request.method, url.pathname, response.status, Date.now() - startTime, userAgent);
+      addLiveRequest(
+        request.method,
+        url.pathname,
+        response.status,
+        Date.now() - startTime,
+        userAgent
+      );
       return response;
     } else {
       const response = await handleOptions(request);
       recordRequestStats(startTime, url.pathname, response.status);
-      addLiveRequest(request.method, url.pathname, response.status, Date.now() - startTime, userAgent);
+      addLiveRequest(
+        request.method,
+        url.pathname,
+        response.status,
+        Date.now() - startTime,
+        userAgent
+      );
       return response;
     }
   } catch (error) {
     debugLog("处理请求时出错: %v", error);
     recordRequestStats(startTime, url.pathname, 500);
-    addLiveRequest(request.method, url.pathname, 500, Date.now() - startTime, userAgent);
+    addLiveRequest(
+      request.method,
+      url.pathname,
+      500,
+      Date.now() - startTime,
+      userAgent
+    );
     return new Response("Internal Server Error", { status: 500 });
   }
 }
