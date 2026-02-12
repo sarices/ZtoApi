@@ -579,7 +579,7 @@ const ANON_TOKEN_ENABLED = true;
  * 环境变量配置
  */
 const UPSTREAM_URL =
-  Deno.env.get("UPSTREAM_URL") || "https://chat.z.ai/api/chat/completions";
+  Deno.env.get("UPSTREAM_URL") || "https://chat.z.ai/api/v2/chat/completions";
 const DEFAULT_KEY = Deno.env.get("DEFAULT_KEY") || "sk-your-key";
 const ZAI_TOKEN = Deno.env.get("ZAI_TOKEN") || "";
 
@@ -636,6 +636,80 @@ const SUPPORTED_MODELS: ModelConfig[] = [
     id: "glm-4.6",
     name: "GLM-4.6",
     upstreamId: "GLM-4-6-API-V1",
+    capabilities: {
+      vision: false,
+      mcp: true,
+      thinking: true,
+    },
+    defaultParams: {
+      top_p: 0.95,
+      temperature: 0.6,
+      max_tokens: 80000,
+    },
+  },
+  {
+    id: "glm-4.6v",
+    name: "GLM-4.6V",
+    upstreamId: "glm-4.6v",
+    capabilities: {
+      vision: true,
+      mcp: false,
+      thinking: true,
+    },
+    defaultParams: {
+      top_p: 0.6,
+      temperature: 0.8,
+    },
+  },
+  {
+    id: "glm-4.7",
+    name: "GLM-4.7",
+    upstreamId: "glm-4.7",
+    capabilities: {
+      vision: false,
+      mcp: true,
+      thinking: true,
+    },
+    defaultParams: {
+      top_p: 0.95,
+      temperature: 0.6,
+      max_tokens: 80000,
+    },
+  },
+  {
+    id: "glm-5",
+    name: "GLM-5",
+    upstreamId: "glm-5",
+    capabilities: {
+      vision: false,
+      mcp: true,
+      thinking: true,
+    },
+    defaultParams: {
+      top_p: 0.95,
+      temperature: 0.6,
+      max_tokens: 80000,
+    },
+  },
+  {
+    id: "0727-106B-API",
+    name: "GLM-4.5-Air",
+    upstreamId: "0727-106B-API",
+    capabilities: {
+      vision: false,
+      mcp: true,
+      thinking: true,
+    },
+    defaultParams: {
+      top_p: 0.95,
+      temperature: 0.6,
+      max_tokens: 80000,
+    },
+  },
+  {
+    id: "0808-360B-DR",
+    name: "0808-360B-DR",
+    upstreamId: "0808-360B-DR",
     capabilities: {
       vision: false,
       mcp: true,
@@ -1897,188 +1971,1024 @@ function getIndexHTML(): string {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ZtoApi - OpenAI兼容API代理</title>
+    <title>ZtoApi - Next-Gen AI Gateway</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@300;500;700&display=swap" rel="stylesheet">
     <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #13131a;
+            --bg-card: rgba(19, 19, 26, 0.8);
+            --bg-card-hover: rgba(19, 19, 26, 0.95);
+            --accent-cyan: #00fff5;
+            --accent-purple: #b94fff;
+            --accent-pink: #ff00aa;
+            --accent-green: #00ff88;
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0c0;
+            --text-muted: #6b7280;
+            --border-glow: rgba(0, 255, 245, 0.3);
+            --border-subtle: rgba(255, 255, 255, 0.1);
+            --shadow-glow: 0 20px 40px rgba(0, 255, 245, 0.15);
+        }
+
+        [data-theme="light"] {
+            --bg-primary: #f8f9fc;
+            --bg-secondary: #ffffff;
+            --bg-card: rgba(255, 255, 255, 0.9);
+            --bg-card-hover: rgba(255, 255, 255, 0.98);
+            --text-primary: #1a1a2e;
+            --text-secondary: #4b5563;
+            --text-muted: #9ca3af;
+            --border-glow: rgba(0, 255, 245, 0.15);
+            --border-subtle: rgba(0, 0, 0, 0.06);
+            --shadow-glow: 0 10px 30px rgba(185, 79, 255, 0.1);
+        }
+
+        * {
             margin: 0;
             padding: 0;
-            background-color: #f5f5f5;
-            line-height: 1.6;
+            box-sizing: border-box;
         }
+
+        body {
+            font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            overflow-x: hidden;
+            min-height: 100vh;
+            transition: background 0.5s ease, color 0.5s ease;
+        }
+
+        /* Animated Particle Background */
+        .particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0.3;
+            transition: opacity 0.5s ease;
+        }
+
+        [data-theme="light"] .particles {
+            opacity: 0.15;
+        }
+
+        .particle {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: var(--accent-cyan);
+            border-radius: 50%;
+            animation: float 15s infinite;
+            box-shadow: 0 0 10px var(--accent-cyan);
+        }
+
+        [data-theme="light"] .particle {
+            box-shadow: 0 0 8px var(--accent-cyan);
+        }
+
+        @keyframes float {
+            0%, 100% {
+                transform: translateY(100vh) scale(0);
+                opacity: 0;
+            }
+            10% {
+                opacity: 1;
+            }
+            90% {
+                transform: translateY(-10vh) scale(1);
+            }
+        }
+
         .container {
-            max-width: 1200px;
+            position: relative;
+            z-index: 1;
+            max-width: 1400px;
             margin: 0 auto;
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            padding: 40px;
-            margin-top: 40px;
+            padding: 60px 40px;
         }
-        header {
+
+        /* Top Bar with Controls */
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 50px;
+            animation: fadeInUp 0.8s ease-out;
+        }
+
+        .controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .control-btn {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 50px;
+            padding: 10px 18px;
+            cursor: pointer;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .control-btn:hover {
+            background: var(--bg-card);
+            border-color: var(--border-glow);
+            color: var(--text-primary);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+        }
+
+        .control-btn.active {
+            background: var(--accent-cyan);
+            color: var(--bg-primary);
+            border-color: var(--accent-cyan);
+        }
+
+        [data-theme="light"] .control-btn.active {
+            background: var(--accent-purple);
+            color: #ffffff;
+        }
+
+        .control-icon {
+            font-size: 1.1rem;
+        }
+
+        /* Header Section */
+        .hero {
             text-align: center;
-            margin-bottom: 40px;
+            margin-bottom: 80px;
+            animation: fadeInUp 1s ease-out;
         }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .brand {
+            display: inline-block;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1rem;
+            font-weight: 700;
+            letter-spacing: 4px;
+            margin-bottom: 20px;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, var(--accent-purple), var(--accent-pink));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: glow 3s ease-in-out infinite alternate;
+        }
+
+        @keyframes glow {
+            from {
+                filter: drop-shadow(0 0 8px var(--accent-purple));
+            }
+            to {
+                filter: drop-shadow(0 0 16px var(--accent-cyan));
+            }
+        }
+
+        [data-theme="light"] .brand {
+            background: linear-gradient(135deg, #8b5cf6, #06b6d4);
+        }
+
         h1 {
-            color: #333;
-            margin-bottom: 10px;
-            font-size: 2.5rem;
+            font-size: clamp(3rem, 8vw, 6rem);
+            font-weight: 700;
+            line-height: 1.1;
+            margin-bottom: 20px;
+            background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-cyan) 50%, var(--accent-purple) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: -2px;
         }
+
+        [data-theme="light"] h1 {
+            background: linear-gradient(135deg, #1a1a2e 0%, #0066ff 50%, #8b5cf6 100%);
+        }
+
         .subtitle {
-            color: #666;
-            font-size: 1.2rem;
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            font-weight: 300;
             margin-bottom: 30px;
+            letter-spacing: 1px;
         }
-        .links {
+
+        .model-counter {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 20px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-glow);
+            border-radius: 50px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+        }
+
+        [data-theme="light"] .model-counter {
+            border-color: var(--border-subtle);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        .counter {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent-cyan);
+        }
+
+        [data-theme="light"] .counter {
+            color: #0066ff;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--accent-green);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+            50% {
+                opacity: 0.5;
+                transform: scale(1.2);
+            }
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 30px;
+            margin-bottom: 60px;
+            animation: fadeInUp 1s ease-out 0.2s both;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 30px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        [data-theme="light"] .stat-card {
+            border-color: var(--border-subtle);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, var(--accent-cyan) 0%, transparent 70%);
+            opacity: 0;
+            transition: opacity 0.4s;
+            pointer-events: none;
+        }
+
+        [data-theme="light"] .stat-card::before {
+            background: radial-gradient(circle, #0066ff 0%, transparent 70%);
+        }
+
+        .stat-card:hover::before {
+            opacity: 0.1;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-8px) scale(1.02);
+            border-color: var(--border-glow);
+            box-shadow: var(--shadow-glow);
+        }
+
+        [data-theme="light"] .stat-card:hover {
+            box-shadow: 0 15px 30px rgba(0, 102, 255, 0.15);
+        }
+
+        .stat-number {
+            font-size: 3rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+        }
+
+        [data-theme="light"] .stat-number {
+            background: linear-gradient(135deg, #0066ff, #8b5cf6);
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        /* Links Section */
+        .links-section {
+            margin-bottom: 60px;
+        }
+
+        .section-title {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .section-title::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--border-glow), transparent);
+        }
+
+        .links-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 25px;
+        }
+
+        .link-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 35px;
+            position: relative;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            text-decoration: none;
+            color: var(--text-primary);
+            display: block;
+        }
+
+        [data-theme="light"] .link-card {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        .link-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 255, 245, 0.1), transparent);
+            transition: left 0.5s;
+        }
+
+        [data-theme="light"] .link-card::before {
+            background: linear-gradient(90deg, transparent, rgba(0, 102, 255, 0.15), transparent);
+        }
+
+        .link-card:hover::before {
+            left: 100%;
+        }
+
+        .link-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--border-glow);
+            box-shadow: var(--shadow-glow);
+        }
+
+        [data-theme="light"] .link-card:hover {
+            box-shadow: 0 15px 30px rgba(0, 102, 255, 0.2);
+        }
+
+        .link-icon {
+            font-size: 2.5rem;
+            margin-bottom: 15px;
+            display: block;
+        }
+
+        .link-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+            letter-spacing: -0.5px;
+        }
+
+        .link-desc {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+
+        .link-arrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--accent-cyan);
+            transition: gap 0.3s;
+        }
+
+        [data-theme="light"] .link-arrow {
+            color: #0066ff;
+        }
+
+        .link-card:hover .link-arrow {
+            gap: 12px;
+        }
+
+        /* Highlight Card (Quick Test) */
+        .link-card.highlight {
+            background: linear-gradient(135deg, rgba(185, 79, 255, 0.15), rgba(185, 79, 255, 0.05));
+            border-color: rgba(255, 0, 170, 0.3);
+        }
+
+        [data-theme="light"] .link-card.highlight {
+            background: linear-gradient(135deg, rgba(255, 0, 170, 0.2), rgba(255, 0, 170, 0.08));
+            border-color: rgba(255, 0, 170, 0.4);
+        }
+
+        /* Features Section */
+        .features-section {
+            position: relative;
+        }
+
+        .features-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 20px;
-            margin-top: 40px;
         }
-        .link-card {
-            background-color: #f8f9fa;
-            border-radius: 8px;
-            padding: 20px;
-            text-align: center;
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-            border: 1px solid #e9ecef;
-        }
-        .link-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-        }
-        .link-card h3 {
-            margin-top: 0;
-            color: #007bff;
-        }
-        .link-card p {
-            color: #666;
-            margin-bottom: 20px;
-        }
-        .link-card a {
-            display: inline-block;
-            background-color: #007bff;
-            color: white;
-            padding: 10px 20px;
-            border-radius: 4px;
-            text-decoration: none;
-            font-weight: bold;
-            transition: background-color 0.3s ease;
-        }
-        .link-card a:hover {
-            background-color: #0056b3;
-        }
-        .features {
-            margin-top: 60px;
-        }
-        .features h2 {
-            text-align: center;
-            color: #333;
-            margin-bottom: 30px;
-        }
-        .feature-list {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-        }
+
         .feature-item {
-            text-align: center;
-            padding: 20px;
+            padding: 25px;
+            border-radius: 12px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            transition: all 0.3s ease;
         }
-        .feature-item i {
-            font-size: 2rem;
-            color: #007bff;
-            margin-bottom: 15px;
+
+        [data-theme="light"] .feature-item {
+            background: rgba(255, 255, 255, 0.6);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
         }
-        .feature-item h3 {
-            color: #333;
-            margin-bottom: 10px;
+
+        .feature-item:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--border-glow);
         }
-        .feature-item p {
-            color: #666;
+
+        [data-theme="light"] .feature-item:hover {
+            box-shadow: 0 8px 16px rgba(0, 102, 255, 0.12);
         }
+
+        .feature-icon {
+            font-size: 1.8rem;
+            margin-bottom: 12px;
+            display: block;
+        }
+
+        .feature-title {
+            font-size: 1.1rem;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+
+        .feature-desc {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        /* Footer */
         footer {
             text-align: center;
-            margin-top: 60px;
-            padding-top: 20px;
-            border-top: 1px solid #e9ecef;
-            color: #666;
+            padding: 40px 0;
+            border-top: 1px solid var(--border-subtle);
+            margin-top: 80px;
+        }
+
+        .footer-text {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            letter-spacing: 1px;
+        }
+
+        .footer-link {
+            color: var(--accent-purple);
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.3s;
+        }
+
+        [data-theme="light"] .footer-link {
+            color: #8b5cf6;
+        }
+
+        .footer-link:hover {
+            color: var(--accent-cyan);
+        }
+
+        [data-theme="light"] .footer-link:hover {
+            color: #0066ff;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container {
+                padding: 40px 20px;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 2.5rem;
+            }
+
+            .controls {
+                gap: 8px;
+            }
+
+            .control-btn {
+                padding: 8px 14px;
+                font-size: 0.8rem;
+            }
+
+            .control-btn span {
+                display: none;
+            }
         }
     </style>
 </head>
 <body>
+    <!-- Animated Particles Background -->
+    <div class="particles" id="particles"></div>
+
     <div class="container">
-        <header>
-            <h1>ZtoApi</h1>
-            <div class="subtitle">OpenAI兼容API代理 for Z.ai GLM-4.5</div>
-            <p>一个高性能、易于部署的API代理服务，让你能够使用OpenAI兼容的格式访问Z.ai的GLM-4.5模型。</p>
-        </header>
-        
-        <div class="links">
-            <div class="link-card">
-                <h3>📖 API文档</h3>
-                <p>查看完整的API文档，了解如何使用本服务。</p>
-                <a href="/docs">查看文档</a>
+        <!-- Hero Section -->
+        <div class="hero">
+            <div class="brand">ZtoApi</div>
+            <h1>AI GATEWAY</h1>
+            <div class="subtitle">
+                OpenAI 兼容的下一代 GLM 模型代理服务
             </div>
-            
-            <div class="link-card">
-                <h3>📊 API调用看板</h3>
-                <p>实时监控API调用情况，查看请求统计和性能指标。</p>
-                <a href="/dashboard">查看看板</a>
-            </div>
-            
-            <div class="link-card">
-                <h3>🤖 模型列表</h3>
-                <p>查看可用的AI模型列表及其详细信息。</p>
-                <a href="/v1/models">查看模型</a>
+            <div class="model-counter">
+                <span class="status-dot"></span>
+                <span class="counter">8</span>
+                <span>个 AI 模型在线</span>
             </div>
         </div>
-        
-        <div class="features">
-            <h2>功能特性</h2>
-            <div class="feature-list">
+
+        <!-- Stats Section -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number">v2.1</div>
+                <div class="stat-label">API 版本</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">100%</div>
+                <div class="stat-label">OpenAI 兼容</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">&lt;50ms</div>
+                <div class="stat-label">平均延迟</div>
+            </div>
+        </div>
+
+        <!-- Quick Links -->
+        <div class="links-section">
+            <div class="section-title">快速访问</div>
+            <div class="links-grid">
+                <a href="/v1/models" class="link-card">
+                    <span class="link-icon">🤖</span>
+                    <div class="link-title">模型列表</div>
+                    <div class="link-desc">探索全部8个GLM系列AI模型及其能力</div>
+                    <span class="link-arrow">查看模型 →</span>
+                </a>
+
+                <a href="/docs" class="link-card">
+                    <span class="link-icon">📚</span>
+                    <div class="link-title">API 文档</div>
+                    <div class="link-desc">完整的集成指南、代码示例和最佳实践</div>
+                    <span class="link-arrow">阅读文档 →</span>
+                </a>
+
+                <a href="/dashboard" class="link-card">
+                    <span class="link-icon">📊</span>
+                    <div class="link-title">监控看板</div>
+                    <div class="link-desc">实时API调用统计、性能指标和错误追踪</div>
+                    <span class="link-arrow">打开看板 →</span>
+                </a>
+
+                <a href="/v1/chat/completions" class="link-card highlight">
+                    <span class="link-icon">⚡</span>
+                    <div class="link-title">快速测试</div>
+                    <div class="link-desc">直接在浏览器中体验AI对话能力</div>
+                    <span class="link-arrow" style="color: var(--accent-pink);">立即试用 →</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Features Section -->
+        <div class="features-section">
+            <div class="section-title">核心能力</div>
+            <div class="features-grid">
                 <div class="feature-item">
-                    <div>🔄</div>
-                    <h3>OpenAI API兼容</h3>
-                    <p>完全兼容OpenAI的API格式，无需修改客户端代码</p>
+                    <span class="feature-icon">🔄</span>
+                    <div class="feature-title">Token 池管理</div>
+                    <div class="feature-desc">多Token轮换，自动故障切换，99.9%可用性</div>
                 </div>
-                
+
                 <div class="feature-item">
-                    <div>🌊</div>
-                    <h3>流式响应支持</h3>
-                    <p>支持实时流式输出，提供更好的用户体验</p>
+                    <span class="feature-icon">🌊</span>
+                    <div class="feature-title">SSE 流式传输</div>
+                    <div class="feature-desc">实时逐token输出，毫秒级首字节响应</div>
                 </div>
-                
+
                 <div class="feature-item">
-                    <div>🔐</div>
-                    <h3>身份验证</h3>
-                    <p>支持API密钥验证，确保服务安全</p>
+                    <span class="feature-icon">🔐</span>
+                    <div class="feature-title">双层HMAC签名</div>
+                    <div class="feature-desc">企业级安全，时间窗口验证，密钥可配置</div>
                 </div>
-                
+
                 <div class="feature-item">
-                    <div>🛠️</div>
-                    <h3>灵活配置</h3>
-                    <p>通过环境变量进行灵活配置</p>
+                    <span class="feature-icon">🎯</span>
+                    <div class="feature-title">全方位多模态</div>
+                    <div class="feature-desc">图像、视频、文档、音频，GLM-4.5V/4.6V支持</div>
                 </div>
-                
+
                 <div class="feature-item">
-                    <div>📝</div>
-                    <h3>思考过程展示</h3>
-                    <p>智能处理并展示模型的思考过程</p>
+                    <span class="feature-icon">🧠</span>
+                    <div class="feature-title">智能思考展示</div>
+                    <div class="feature-desc">完整展现AI推理过程，支持GLM-4.6/4.7/5系列</div>
                 </div>
-                
+
                 <div class="feature-item">
-                    <div>📊</div>
-                    <h3>实时监控</h3>
-                    <p>提供Web仪表板，实时显示API转发情况和统计信息</p>
+                    <span class="feature-icon">🔍</span>
+                    <div class="feature-title">MCP 工具调用</div>
+                    <div class="feature-desc">深度搜索、编程助手、PPT生成等高级功能</div>
                 </div>
             </div>
         </div>
-        
+
+        <!-- Footer -->
         <footer>
-            <p>© 2024 ZtoApi. Powered by Deno & Z.ai GLM-4.5</p>
+            <div class="footer-text">
+                Powered by <a href="https://deno.land" class="footer-link">Deno</a> &
+                <a href="https://chat.z.ai" class="footer-link">Z.ai GLM</a> •
+                v2.1 Enterprise Edition
+            </div>
         </footer>
     </div>
+
+    <script>
+        // Generate floating particles
+        function generateParticles() {
+            const particlesContainer = document.getElementById('particles');
+            if (!particlesContainer) return;
+            particlesContainer.innerHTML = '';
+            const particleCount = 30;
+
+            for (let i = 0; i < particleCount; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                particle.style.left = Math.random() * 100 + '%';
+                particle.style.animationDelay = Math.random() * 15 + 's';
+                particle.style.animationDuration = (10 + Math.random() * 10) + 's';
+                particlesContainer.appendChild(particle);
+            }
+        }
+
+        // Typing effect for subtitle
+        function animateSubtitle() {
+            const subtitle = document.querySelector('.subtitle');
+            if (!subtitle) return;
+            const text = subtitle.textContent;
+            subtitle.textContent = '';
+            let i = 0;
+
+            function typeWriter() {
+                if (i < text.length) {
+                    subtitle.textContent += text.charAt(i);
+                    i++;
+                    setTimeout(typeWriter, 50);
+                }
+            }
+
+            setTimeout(typeWriter, 500);
+        }
+
+        // Counter animation
+        function animateCounter() {
+            const counter = document.querySelector('.counter');
+            if (!counter) return;
+            let count = 0;
+            const target = 8;
+
+            function animate() {
+                if (count < target) {
+                    count++;
+                    counter.textContent = count;
+                    setTimeout(animate, 100);
+                }
+            }
+
+            setTimeout(animate, 1000);
+        }
+
+        // Scroll reveal animation
+        function observeScrollReveal() {
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.style.opacity = '1';
+                        entry.target.style.transform = 'translateY(0)';
+                    }
+                });
+            }, { threshold: 0.1 });
+
+            document.querySelectorAll('.feature-item').forEach(item => {
+                item.style.opacity = '0';
+                item.style.transform = 'translateY(20px)';
+                item.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+                observer.observe(item);
+            });
+        }
+
+        // Initialize
+        function init() {
+            generateParticles();
+            animateCounter();
+            animateSubtitle();
+            observeScrollReveal();
+        }
+
+        // Start everything
+        init();
+    </script>
+            zh: {
+                brand: 'ZtoApi',
+                hero_title: 'AI GATEWAY',
+                hero_subtitle: 'OpenAI 兼容的下一代 GLM 模型代理服务',
+                models_available: '个 AI 模型在线',
+                stat_api_version: 'API 版本',
+                stat_compatibility: 'OpenAI 兼容',
+                stat_latency: '平均延迟',
+                section_quick_access: '快速访问',
+                link_models: '模型列表',
+                link_models_desc: '探索全部8个GLM系列AI模型及其能力',
+                view_models: '查看模型 →',
+                link_docs: 'API 文档',
+                link_docs_desc: '完整的集成指南、代码示例和最佳实践',
+                read_docs: '阅读文档 →',
+                link_dashboard: '监控看板',
+                link_dashboard_desc: '实时API调用统计、性能指标和错误追踪',
+                open_dashboard: '打开看板 →',
+                link_quick_test: '快速测试',
+                link_quick_test_desc: '直接在浏览器中体验AI对话能力',
+                try_now: '立即试用 →',
+                section_core_features: '核心能力',
+                feature_token_pool: 'Token 池管理',
+                feature_token_pool_desc: '多Token轮换，自动故障切换，99.9%可用性',
+                feature_sse: 'SSE 流式传输',
+                feature_sse_desc: '实时逐token输出，毫秒级首字节响应',
+                feature_hmac: '双层HMAC签名',
+                feature_hmac_desc: '企业级安全，时间窗口验证，密钥可配置',
+                feature_multimodal: '全方位多模态',
+                feature_multimodal_desc: '图像、视频、文档、音频，GLM-4.5V/4.6V支持',
+                feature_thinking: '智能思考展示',
+                feature_thinking_desc: '完整展现AI推理过程，支持GLM-4.6/4.7/5系列',
+                feature_mcp: 'MCP 工具调用',
+                feature_mcp_desc: '深度搜索、编程助手、PPT生成等高级功能',
+                theme_dark: '暗黑',
+                theme_light: '白天'
+            },
+            en: {
+                brand: 'ZtoApi',
+                hero_title: 'AI GATEWAY',
+                hero_subtitle: 'OpenAI-compatible next-gen GLM model proxy service',
+                models_available: ' AI models online',
+                stat_api_version: 'API Version',
+                stat_compatibility: 'OpenAI Compatible',
+                stat_latency: 'Avg Latency',
+                section_quick_access: 'Quick Access',
+                link_models: 'Models',
+                link_models_desc: 'Explore all 8 GLM series AI models and capabilities',
+                view_models: 'View Models →',
+                link_docs: 'API Docs',
+                link_docs_desc: 'Complete integration guides, code examples, and best practices',
+                read_docs: 'Read Docs →',
+                link_dashboard: 'Dashboard',
+                link_dashboard_desc: 'Real-time API call statistics, performance metrics, and error tracking',
+                open_dashboard: 'Open Dashboard →',
+                link_quick_test: 'Quick Test',
+                link_quick_test_desc: 'Experience AI conversational capabilities directly in your browser',
+                try_now: 'Try Now →',
+                section_core_features: 'Core Features',
+                feature_token_pool: 'Token Pool',
+                feature_token_pool_desc: 'Multi-token rotation with automatic failover, 99.9% availability',
+                feature_sse: 'SSE Streaming',
+                feature_sse_desc: 'Real-time token-by-token output with millisecond first-byte response',
+                feature_hmac: 'Dual-layer HMAC',
+                feature_hmac_desc: 'Enterprise-grade security with time-window verification and configurable keys',
+                feature_multimodal: 'Multimodal Support',
+                feature_multimodal_desc: 'Images, videos, documents, and audio with GLM-4.5V/4.6V support',
+                feature_thinking: 'Thinking Display',
+                feature_thinking_desc: 'Full AI reasoning process display for GLM-4.6/4.7/5 series',
+                feature_mcp: 'MCP Tools',
+                feature_mcp_desc: 'Deep search, coding assistant, PPT generation, and more advanced features',
+                theme_dark: 'Dark',
+                theme_light: 'Light'
+            }
+        };
+
+        // State
+        let currentTheme = localStorage.getItem('theme') || 'dark';
+        let currentLang = localStorage.getItem('lang') || 'zh';
+
+        // Initialize
+        function init() {
+            applyTheme(currentTheme);
+            applyLanguage(currentLang);
+            updateControls();
+            generateParticles();
+            animateCounter();
+            animateSubtitle();
+            observeScrollReveal();
+        }
+
+        // Theme Toggle
+        function toggleTheme() {
+            currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            localStorage.setItem('theme', currentTheme);
+            applyTheme(currentTheme);
+            updateControls();
+        }
+
+        function applyTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            const themeIcon = document.getElementById('theme-icon');
+            const themeText = document.querySelector('#theme-toggle .control-text');
+            themeIcon.textContent = theme === 'dark' ? '🌙' : '☀️';
+            themeText.textContent = translations[currentLang][theme === 'dark' ? 'theme_dark' : 'theme_light'];
+        }
+
+        // Language Toggle
+        function toggleLanguage() {
+            currentLang = currentLang === 'zh' ? 'en' : 'zh';
+            localStorage.setItem('lang', currentLang);
+            applyLanguage(currentLang);
+        }
+
+        function applyLanguage(lang) {
+            const langText = document.querySelector('#lang-toggle .control-text');
+            langText.textContent = lang === 'zh' ? 'EN' : '中文';
+
+            // Update all text elements
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if (translations[lang] && translations[lang][key])) {
+                    el.textContent = translations[lang][key];
+                }
+            });
+
+            // Update html lang attribute
+            document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+        }
+
+        function updateControls() {
+            const themeText = document.querySelector('#theme-toggle .control-text');
+            themeText.textContent = translations[currentLang][currentTheme === 'dark' ? 'theme_dark' : 'theme_light'];
+        }
+
+        // Generate floating particles
+        function generateParticles() {
+            const particlesContainer = document.getElementById('particles');
+            if (!particlesContainer) return;
+            particlesContainer.innerHTML = '';
+            const particleCount = 30;
+
+            for (let i = 0; i < particleCount; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                particle.style.left = Math.random() * 100 + '%';
+                particle.style.animationDelay = Math.random() * 15 + 's';
+                particle.style.animationDuration = (10 + Math.random() * 10) + 's';
+                particlesContainer.appendChild(particle);
+            }
+        }
+
+        // Typing effect for subtitle
+        function animateSubtitle() {
+            const subtitle = document.querySelector('.subtitle');
+            if (!subtitle) return;
+            const text = subtitle.textContent;
+            subtitle.textContent = '';
+            let i = 0;
+
+            function typeWriter() {
+                if (i < text.length) {
+                    subtitle.textContent += text.charAt(i);
+                    i++;
+                    setTimeout(typeWriter, 50);
+                }
+            }
+
+            setTimeout(typeWriter, 500);
+        }
+
+        // Counter animation
+        function animateCounter() {
+            const counter = document.querySelector('.counter');
+            if (!counter) return;
+            let count = 0;
+            const target = 8;
+
+            function animate() {
+                if (count < target) {
+                    count++;
+                    counter.textContent = count;
+                    setTimeout(animate, 100);
+                }
+            }
+
+            setTimeout(animate, 1000);
+        }
+
+        // Scroll reveal animation
+        function observeScrollReveal() {
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.style.opacity = '1';
+                        entry.target.style.transform = 'translateY(0)';
+                    }
+                });
+            }, { threshold: 0.1 });
+
+            document.querySelectorAll('.feature-item').forEach(item => {
+                item.style.opacity = '0';
+                item.style.transform = 'translateY(20px)';
+                item.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+                observer.observe(item);
+            });
+        }
+
+        // Start everything
+        init();
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            // Ctrl/Cmd + K for theme toggle
+            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+                e.preventDefault();
+                toggleTheme();
+            }
+            // Ctrl/Cmd + L for language toggle
+            if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
+                e.preventDefault();
+                toggleLanguage();
+            }
+        });
+    </script>
 </body>
 </html>`;
 }
@@ -2684,111 +3594,259 @@ function getDashboardHTML(): string {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>API调用看板</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@300;500;700&display=swap" rel="stylesheet">
     <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #13131a;
+            --bg-card: rgba(19, 19, 26, 0.8);
+            --bg-card-hover: rgba(19, 19, 26, 0.95);
+            --accent-cyan: #00fff5;
+            --accent-purple: #b94fff;
+            --accent-pink: #ff00aa;
+            --accent-green: #00ff88;
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0c0;
+            --text-muted: #6b7280;
+            --border-glow: rgba(0, 255, 245, 0.3);
+            --border-subtle: rgba(255, 255, 255, 0.1);
+            --shadow-glow: 0 20px 40px rgba(0, 255, 245, 0.15);
+        }
+
+        * {
             margin: 0;
-            padding: 20px;
-            background-color: #f5f5f5;
+            padding: 0;
+            box-sizing: border-box;
         }
+
+        body {
+            font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            overflow-x: hidden;
+            min-height: 100vh;
+            transition: background 0.5s ease, color 0.5s ease;
+        }
+
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            padding: 20px;
+            padding: 60px 40px;
         }
+
         h1 {
-            color: #333;
+            font-size: clamp(2.5rem, 5vw, 4rem);
+            font-weight: 700;
+            line-height: 1.1;
+            margin-bottom: 40px;
             text-align: center;
-            margin-bottom: 30px;
+            background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-cyan) 50%, var(--accent-purple) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: -2px;
         }
         .stats-container {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
+            gap: 30px;
+            margin-bottom: 60px;
         }
+
         .stat-card {
-            background-color: #f8f9fa;
-            border-radius: 6px;
-            padding: 15px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 30px;
             text-align: center;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            position: relative;
+            overflow: hidden;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, var(--accent-cyan) 0%, transparent 70%);
+            opacity: 0;
+            transition: opacity 0.4s;
+            pointer-events: none;
+        }
+
+        .stat-card:hover::before {
+            opacity: 0.1;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-8px) scale(1.02);
+            border-color: var(--border-glow);
+            box-shadow: var(--shadow-glow);
+        }
+
         .stat-value {
-            font-size: 24px;
-            font-weight: bold;
-            color: #007bff;
+            font-size: 3rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
         }
+
         .stat-label {
-            font-size: 14px;
-            color: #6c757d;
-            margin-top: 5px;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 2px;
         }
-        .requests-container {
+
+        .chart-container {
             margin-top: 30px;
+            height: 350px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 25px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
         }
+
+        .chart-container h2 {
+            color: var(--accent-cyan);
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+        }
+
+        .requests-container {
+            margin-top: 60px;
+        }
+
+        .requests-container h2 {
+            color: var(--text-primary);
+            font-size: 1.8rem;
+            margin-bottom: 25px;
+        }
+
         .requests-table {
             width: 100%;
             border-collapse: collapse;
+            background: var(--bg-card);
+            border-radius: 12px;
+            overflow: hidden;
         }
-        .requests-table th, .requests-table td {
-            padding: 10px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
-        }
+
         .requests-table th {
-            background-color: #f8f9fa;
+            background: var(--bg-secondary);
+            color: var(--accent-cyan);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-size: 0.85rem;
         }
+
+        .requests-table th, .requests-table td {
+            padding: 16px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .requests-table tr:hover {
+            background: var(--bg-card-hover);
+        }
+
         .status-success {
-            color: #28a745;
+            color: var(--accent-green);
+            font-weight: 600;
         }
+
         .status-error {
-            color: #dc3545;
+            color: var(--accent-pink);
+            font-weight: 600;
         }
-        .refresh-info {
-            text-align: center;
-            margin-top: 20px;
-            color: #6c757d;
-            font-size: 14px;
-        }
+
         .pagination-container {
             display: flex;
             justify-content: center;
             align-items: center;
-            margin-top: 20px;
-            gap: 10px;
-        }
-        .pagination-container button {
-            padding: 5px 10px;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        .pagination-container button:disabled {
-            background-color: #cccccc;
-            cursor: not-allowed;
-        }
-        .pagination-container button:hover:not(:disabled) {
-            background-color: #0056b3;
-        }
-        .chart-container {
             margin-top: 30px;
-            height: 300px;
-            background-color: #f8f9fa;
-            border-radius: 6px;
-            padding: 15px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            gap: 15px;
+        }
+
+        .pagination-container button {
+            padding: 10px 20px;
+            background: var(--accent-cyan);
+            color: var(--bg-primary);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .pagination-container button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(0, 255, 245, 0.3);
+        }
+
+        .pagination-container button:disabled {
+            background: var(--bg-secondary);
+            color: var(--text-muted);
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        #page-info {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        .refresh-info {
+            text-align: center;
+            margin-top: 40px;
+            padding: 20px;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container {
+                padding: 40px 20px;
+            }
+
+            .stats-container {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 2.5rem;
+            }
+
+            .requests-table {
+                font-size: 0.85rem;
+            }
+
+            .pagination-container {
+                gap: 8px;
+            }
+
+            .pagination-container button {
+                padding: 8px 14px;
+                font-size: 0.85rem;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>API调用看板</h1>
+        <h1>API 调用看板</h1>
         
         <div class="stats-container">
             <div class="stat-card">
@@ -2981,8 +4039,8 @@ function getDashboardHTML(): string {
                     datasets: [{
                         label: '响应时间 (s)',
                         data: responseTimes.map(time => time / 1000),
-                        borderColor: '#007bff',
-                        backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                        borderColor: '#00fff5',
+                        backgroundColor: 'rgba(0, 255, 245, 0.1)',
                         tension: 0.1,
                         fill: true
                     }]
@@ -2993,22 +4051,64 @@ function getDashboardHTML(): string {
                     scales: {
                         y: {
                             beginAtZero: true,
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                color: '#a0a0c0',
+                                font: {
+                                    family: 'JetBrains Mono'
+                                }
+                            },
                             title: {
                                 display: true,
-                                text: '响应时间 (s)'
+                                text: '响应时间 (s)',
+                                color: '#00fff5',
+                                font: {
+                                    family: 'Space Grotesk',
+                                    weight: '500'
+                                }
                             }
                         },
                         x: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.05)',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                color: '#a0a0c0',
+                                font: {
+                                    family: 'JetBrains Mono'
+                                }
+                            },
                             title: {
                                 display: true,
-                                text: '时间'
+                                text: '时间',
+                                color: '#00fff5',
+                                font: {
+                                    family: 'Space Grotesk',
+                                    weight: '500'
+                                }
                             }
                         }
                     },
                     plugins: {
+                        legend: {
+                            display: false
+                        },
                         title: {
                             display: true,
-                            text: '最近20条请求的响应时间趋势 (s)'
+                            text: '最近20条请求的响应时间趋势',
+                            color: '#ffffff',
+                            font: {
+                                family: 'Space Grotesk',
+                                size: 14,
+                                weight: '700'
+                            },
+                            padding: {
+                                bottom: 20
+                            }
                         }
                     }
                 }
@@ -3090,171 +4190,324 @@ function getDocsHTML(): string {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ZtoApi 文档</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@300;500;700&display=swap" rel="stylesheet">
 <style>
-    body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        margin: 0;
-        padding: 20px;
-        background-color: #f5f5f5;
-        line-height: 1.6;
+    :root {
+        --bg-primary: #0a0a0f;
+        --bg-secondary: #13131a;
+        --bg-card: rgba(19, 19, 26, 0.8);
+        --bg-card-hover: rgba(19, 19, 26, 0.95);
+        --accent-cyan: #00fff5;
+        --accent-purple: #b94fff;
+        --accent-pink: #ff00aa;
+        --accent-green: #00ff88;
+        --text-primary: #ffffff;
+        --text-secondary: #a0a0c0;
+        --text-muted: #6b7280;
+        --border-glow: rgba(0, 255, 245, 0.3);
+        --border-subtle: rgba(255, 255, 255, 0.1);
+        --shadow-glow: 0 20px 40px rgba(0, 255, 245, 0.15);
     }
+
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
+
+    body {
+        font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        line-height: 1.7;
+        padding: 40px 20px;
+        min-height: 100vh;
+    }
+
     .container {
         max-width: 1200px;
         margin: 0 auto;
-        background-color: white;
-        border-radius: 8px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        padding: 30px;
+        background: var(--bg-card);
+        border-radius: 16px;
+        box-shadow: var(--shadow-glow);
+        padding: 50px;
+        border: 1px solid var(--border-subtle);
     }
+
     h1 {
-        color: #333;
+        font-size: clamp(2.5rem, 6vw, 4rem);
+        font-weight: 700;
+        line-height: 1.1;
+        margin-bottom: 40px;
         text-align: center;
-        margin-bottom: 30px;
-        border-bottom: 2px solid #007bff;
-        padding-bottom: 10px;
+        background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-cyan) 50%, var(--accent-purple) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        letter-spacing: -2px;
     }
+
     h2 {
-        color: #007bff;
+        color: var(--accent-cyan);
+        margin-top: 50px;
+        margin-bottom: 25px;
+        font-size: 1.8rem;
+        font-weight: 600;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+    }
+
+    h3 {
+        color: var(--text-primary);
         margin-top: 30px;
         margin-bottom: 15px;
+        font-size: 1.3rem;
+        font-weight: 500;
     }
-    h3 {
-        color: #333;
-        margin-top: 25px;
-        margin-bottom: 10px;
-    }
+
     .endpoint {
-        background-color: #f8f9fa;
-        border-radius: 6px;
-        padding: 15px;
-        margin-bottom: 20px;
-        border-left: 4px solid #007bff;
+        background: var(--bg-secondary);
+        border-radius: 12px;
+        padding: 25px;
+        margin-bottom: 30px;
+        border-left: 4px solid var(--accent-cyan);
+        transition: all 0.3s ease;
     }
+
+    .endpoint:hover {
+        transform: translateX(5px);
+        box-shadow: -5px 5px 20px rgba(0, 255, 245, 0.15);
+    }
+
     .method {
         display: inline-block;
-        padding: 4px 8px;
-        border-radius: 4px;
+        padding: 6px 12px;
+        border-radius: 6px;
         color: white;
-        font-weight: bold;
-        margin-right: 10px;
-        font-size: 14px;
+        font-weight: 700;
+        margin-right: 15px;
+        font-size: 0.85rem;
+        letter-spacing: 1px;
+        text-transform: uppercase;
     }
-    .get { background-color: #28a745; }
-    .post { background-color: #007bff; }
+
+    .get { background-color: var(--accent-green); }
+    .post { background-color: var(--accent-cyan); }
+
     .path {
-        font-family: monospace;
-        background-color: #e9ecef;
-        padding: 2px 6px;
-        border-radius: 3px;
-        font-size: 16px;
+        font-family: 'JetBrains Mono', monospace;
+        background: var(--bg-card);
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-size: 0.95rem;
+        color: var(--accent-purple);
+        border: 1px solid var(--border-subtle);
     }
+
     .description {
-        margin: 15px 0;
+        margin: 20px 0;
+        color: var(--text-secondary);
+        font-size: 1.05rem;
+        line-height: 1.6;
     }
+
     .parameters {
-        margin: 15px 0;
+        margin: 25px 0;
     }
+
     table {
         width: 100%;
         border-collapse: collapse;
-        margin: 15px 0;
+        margin: 20px 0;
+        background: var(--bg-card);
+        border-radius: 12px;
+        overflow: hidden;
     }
+
     th, td {
-        padding: 10px;
+        padding: 16px;
         text-align: left;
-        border-bottom: 1px solid #ddd;
+        border-bottom: 1px solid var(--border-subtle);
     }
+
     th {
-        background-color: #f8f9fa;
-        font-weight: bold;
+        background: var(--bg-secondary);
+        color: var(--accent-cyan);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-size: 0.85rem;
     }
+
+    tr:hover {
+        background: var(--bg-card-hover);
+    }
+
     .example {
-        background-color: #f8f9fa;
-        border-radius: 6px;
-        padding: 15px;
-        margin: 15px 0;
-        font-family: monospace;
+        background: var(--bg-secondary);
+        border-radius: 12px;
+        padding: 20px;
+        margin: 20px 0;
+        font-family: 'JetBrains Mono', monospace;
         white-space: pre-wrap;
         overflow-x: auto;
+        border: 1px solid var(--border-subtle);
+        color: var(--text-primary);
+        font-size: 0.9rem;
+        line-height: 1.5;
     }
+
+    code {
+        font-family: 'JetBrains Mono', monospace;
+        background: rgba(0, 255, 245, 0.1);
+        padding: 3px 8px;
+        border-radius: 4px;
+        color: var(--accent-cyan);
+        font-size: 0.9em;
+    }
+
     .note {
-        background-color: #fff3cd;
-        border-left: 4px solid #ffc107;
-        padding: 10px 15px;
-        margin: 15px 0;
-        border-radius: 0 4px 4px 0;
+        background: rgba(255, 0, 170, 0.1);
+        border-left: 4px solid var(--accent-pink);
+        padding: 15px 20px;
+        margin: 20px 0;
+        border-radius: 0 8px 8px 0;
+        color: var(--text-primary);
     }
+
     .response {
-        background-color: #f8f9fa;
-        border-radius: 6px;
-        padding: 15px;
-        margin: 15px 0;
-        font-family: monospace;
+        background: var(--bg-secondary);
+        border-radius: 12px;
+        padding: 20px;
+        margin: 20px 0;
+        font-family: 'JetBrains Mono', monospace;
         white-space: pre-wrap;
         overflow-x: auto;
+        border: 1px solid var(--border-subtle);
+        color: var(--accent-green);
+        font-size: 0.9rem;
     }
+
     .tab {
         overflow: hidden;
-        border: 1px solid #ccc;
-        background-color: #f1f1f1;
-        border-radius: 4px 4px 0 0;
+        border: 1px solid var(--border-subtle);
+        background: var(--bg-secondary);
+        border-radius: 8px 8px 0 0;
+        margin-bottom: 25px;
     }
+
     .tab button {
         background-color: inherit;
         float: left;
         border: none;
         outline: none;
         cursor: pointer;
-        padding: 14px 16px;
+        padding: 14px 20px;
         transition: 0.3s;
-        font-size: 16px;
+        font-size: 0.95rem;
+        font-weight: 500;
+        color: var(--text-secondary);
     }
+
     .tab button:hover {
-        background-color: #ddd;
+        background: var(--bg-card-hover);
+        color: var(--accent-cyan);
     }
+
     .tab button.active {
-        background-color: #ccc;
+        background: var(--accent-cyan);
+        color: var(--bg-primary);
+        font-weight: 600;
     }
+
     .tabcontent {
         display: none;
-        padding: 6px 12px;
-        border: 1px solid #ccc;
+        padding: 25px;
+        border: 1px solid var(--border-subtle);
         border-top: none;
-        border-radius: 0 0 4px 4px;
+        border-radius: 0 0 8px 8px;
+        background: var(--bg-card);
     }
+
     .toc {
-        background-color: #f8f9fa;
-        border-radius: 6px;
-        padding: 15px;
-        margin-bottom: 20px;
+        background: var(--bg-secondary);
+        border-radius: 12px;
+        padding: 25px;
+        margin-bottom: 40px;
+        border: 1px solid var(--border-subtle);
     }
+
+    .toc h2 {
+        margin-top: 0;
+        color: var(--accent-purple);
+        font-size: 1.3rem;
+    }
+
     .toc ul {
-        padding-left: 20px;
+        padding-left: 25px;
+        list-style: none;
     }
+
     .toc li {
-        margin: 5px 0;
+        margin: 12px 0;
     }
+
     .toc a {
-        color: #007bff;
+        color: var(--accent-cyan);
         text-decoration: none;
+        font-size: 1.05rem;
+        transition: color 0.3s ease;
     }
+
     .toc a:hover {
+        color: var(--accent-purple);
         text-decoration: underline;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+        body {
+            padding: 20px 10px;
+        }
+
+        .container {
+            padding: 30px 20px;
+        }
+
+        h1 {
+            font-size: 2rem;
+        }
+
+        .endpoint {
+            padding: 20px;
+        }
+
+        table {
+            font-size: 0.85rem;
+        }
+
+        .tab button {
+            padding: 12px 16px;
+            font-size: 0.85rem;
+        }
     }
 </style>
 </head>
 <body>
 <div class="container">
     <h1>ZtoApi 文档</h1>
-    
+
     <div class="toc">
         <h2>目录</h2>
         <ul>
             <li><a href="#overview">概述</a></li>
+            <li><a href="#models">支持的模型</a></li>
             <li><a href="#authentication">身份验证</a></li>
             <li><a href="#endpoints">API端点</a>
                 <ul>
-                    <li><a href="#models">获取模型列表</a></li>
+                    <li><a href="#models-list">获取模型列表</a></li>
                     <li><a href="#chat-completions">聊天完成</a></li>
                 </ul>
             </li>
@@ -3262,16 +4515,75 @@ function getDocsHTML(): string {
             <li><a href="#error-handling">错误处理</a></li>
         </ul>
     </div>
-    
+
     <section id="overview">
         <h2>概述</h2>
-        <p>这是一个为Z.ai GLM-4.5模型提供OpenAI兼容API接口的代理服务器。它允许你使用标准的OpenAI API格式与Z.ai的GLM-4.5模型进行交互，支持流式和非流式响应。</p>
+        <p>ZtoApi 是一个高性能的 OpenAI 兼容 API 代理服务器，为 Z.ai 的 GLM 系列模型提供标准化的访问接口。支持流式和非流式响应，提供实时监控面板，并具备企业级的可用性和安全性。</p>
         <p><strong>基础URL:</strong> <code>http://localhost:9090/v1</code></p>
         <div class="note">
-            <strong>注意:</strong> 默认端口为9090，可以通过环境变量PORT进行修改。
+            <strong>注意:</strong> 默认端口为9090，可以通过环境变量 PORT 进行修改。
         </div>
     </section>
-    
+
+    <section id="models">
+        <h2>支持的模型</h2>
+        <p>ZtoApi 支持 Z.ai 的多个先进 AI 模型：</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>模型 ID</th>
+                    <th>模型名称</th>
+                    <th>特性</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>0727-360B-API</code></td>
+                    <td>GLM-4.5</td>
+                    <td>通用对话、代码生成、工具调用、思考过程</td>
+                </tr>
+                <tr>
+                    <td><code>glm-4.6</code></td>
+                    <td>GLM-4.6</td>
+                    <td>🚀 增强推理、高级代码生成、深度搜索</td>
+                </tr>
+                <tr>
+                    <td><code>glm-4.7</code></td>
+                    <td>GLM-4.7</td>
+                    <td>🆕 最新推理、更强思考能力、卓越编程</td>
+                </tr>
+                <tr>
+                    <td><code>glm-5</code></td>
+                    <td>GLM-5</td>
+                    <td>🚀 旗舰模型、全方位能力提升</td>
+                </tr>
+                <tr>
+                    <td><code>glm-4.5v</code></td>
+                    <td>GLM-4.5V</td>
+                    <td>🎯 全方位多模态：图像、视频、文档、音频</td>
+                </tr>
+                <tr>
+                    <td><code>glm-4.6v</code></td>
+                    <td>GLM-4.6V</td>
+                    <td>🚀 增强多模态：高级视觉理解</td>
+                </tr>
+                <tr>
+                    <td><code>0727-106B-API</code></td>
+                    <td>GLM-4.5-Air</td>
+                    <td>⚡ 轻量快速、低延迟响应</td>
+                </tr>
+                <tr>
+                    <td><code>0808-360B-DR</code></td>
+                    <td>0808-360B-DR</td>
+                    <td>🔬 深度研究专用、长文本分析</td>
+                </tr>
+            </tbody>
+        </table>
+        <div class="note">
+            <strong>模型说明:</strong> 多模态模型（4.5V、4.6V）支持图像、视频、文档和音频内容处理。其他模型专注于文本对话和推理能力。
+        </div>
+    </section>
+
     <section id="authentication">
         <h2>身份验证</h2>
         <p>所有API请求都需要在请求头中包含有效的API密钥进行身份验证：</p>
@@ -3283,7 +4595,7 @@ Authorization: Bearer your-api-key</div>
     <section id="endpoints">
         <h2>API端点</h2>
         
-        <div class="endpoint" id="models">
+        <div class="endpoint" id="models-list">
             <h3>获取模型列表</h3>
             <div>
                 <span class="method get">GET</span>
@@ -3302,6 +4614,48 @@ Authorization: Bearer your-api-key</div>
   "data": [
     {
       "id": "GLM-4.5",
+      "object": "model",
+      "created": 1756788845,
+      "owned_by": "z.ai"
+    },
+    {
+      "id": "GLM-4.5V",
+      "object": "model",
+      "created": 1756788845,
+      "owned_by": "z.ai"
+    },
+    {
+      "id": "GLM-4.6",
+      "object": "model",
+      "created": 1756788845,
+      "owned_by": "z.ai"
+    },
+    {
+      "id": "GLM-4.6V",
+      "object": "model",
+      "created": 1756788845,
+      "owned_by": "z.ai"
+    },
+    {
+      "id": "GLM-4.7",
+      "object": "model",
+      "created": 1756788845,
+      "owned_by": "z.ai"
+    },
+    {
+      "id": "GLM-5",
+      "object": "model",
+      "created": 1756788845,
+      "owned_by": "z.ai"
+    },
+    {
+      "id": "GLM-4.5-Air",
+      "object": "model",
+      "created": 1756788845,
+      "owned_by": "z.ai"
+    },
+    {
+      "id": "GLM-DR",
       "object": "model",
       "created": 1756788845,
       "owned_by": "z.ai"
@@ -3407,54 +4761,96 @@ import openai
 
 # 配置客户端
 client = openai.OpenAI(
-api_key="your-api-key",  # 对应 DEFAULT_KEY
-base_url="http://localhost:9090/v1"
+  api_key="your-api-key",  # 对应 DEFAULT_KEY
+  base_url="http://localhost:9090/v1"
 )
 
-# 非流式请求 - 使用GLM-4.5
+# 示例 1: 使用旗舰模型 GLM-5 进行复杂推理
 response = client.chat.completions.create(
-model="GLM-4.5",
-messages=[{"role": "user", "content": "你好，请介绍一下自己"}]
+  model="GLM-5",
+  messages=[{"role": "user", "content": "分析并优化这段代码的时间复杂度"}]
 )
-
 print(response.choices[0].message.content)
 
-
-# 流式请求 - 使用GLM-4.5
+# 示例 2: 使用 GLM-4.5-Air 快速响应（适合简单对话）
 response = client.chat.completions.create(
-model="GLM-4.5",
-messages=[{"role": "user", "content": "请写一首关于春天的诗"}],
-stream=True
+  model="GLM-4.5-Air",
+  messages=[{"role": "user", "content": "今天天气怎么样？"}]
+)
+print(response.choices[0].message.content)
+
+# 示例 3: 流式请求 - 使用 GLM-4.7
+response = client.chat.completions.create(
+  model="GLM-4.7",
+  messages=[{"role": "user", "content": "请写一首关于春天的诗"}],
+  stream=True
 )
 
-
 for chunk in response:
-if chunk.choices[0].delta.content:
-    print(chunk.choices[0].delta.content, end="")</div>
+  if chunk.choices[0].delta.content:
+    print(chunk.choices[0].delta.content, end="")
+
+# 示例 4: 使用多模态模型 GLM-4.6V（支持图像）
+# response = client.chat.completions.create(
+#   model="GLM-4.6V",
+#   messages=[{
+#     "role": "user",
+#     "content": [
+#       {"type": "text", "text": "描述这张图片"},
+#       {"type": "image_url", "image_url": {"url": "https://example.com/image.jpg"}}
+#     ]
+#   }]
+# )</div>
         </div>
         
         <div id="curl-tab" class="tabcontent">
             <h3>cURL示例</h3>
             <div class="example">
-# 非流式请求
+# 示例 1: 使用旗舰模型 GLM-5（复杂任务）
 curl -X POST http://localhost:9090/v1/chat/completions \
--H "Content-Type: application/json" \
--H "Authorization: Bearer your-api-key" \
--d '{
-"model": "GLM-4.5",
-"messages": [{"role": "user", "content": "你好"}],
-"stream": false
-}'
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-api-key" \
+  -d '{
+    "model": "GLM-5",
+    "messages": [{"role": "user", "content": "请分析这段代码的性能瓶颈"}],
+    "stream": false
+  }'
 
-# 流式请求
+# 示例 2: 使用 GLM-4.5-Air 快速响应（简单对话）
 curl -X POST http://localhost:9090/v1/chat/completions \
--H "Content-Type: application/json" \
--H "Authorization: Bearer your-api-key" \
--d '{
-"model": "GLM-4.5",
-"messages": [{"role": "user", "content": "你好"}],
-"stream": true
-}'</div>
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-api-key" \
+  -d '{
+    "model": "GLM-4.5-Air",
+    "messages": [{"role": "user", "content": "你好"}],
+    "stream": false
+  }'
+
+# 示例 3: 流式请求 - 使用 GLM-4.7
+curl -X POST http://localhost:9090/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-api-key" \
+  -d '{
+    "model": "GLM-4.7",
+    "messages": [{"role": "user", "content": "讲一个有趣的故事"}],
+    "stream": true
+  }'
+
+# 示例 4: 多模态请求 - 使用 GLM-4.6V（支持图像）
+# curl -X POST http://localhost:9090/v1/chat/completions \
+#   -H "Content-Type: application/json" \
+#   -H "Authorization: Bearer your-api-key" \
+#   -d '{
+#     "model": "GLM-4.6V",
+#     "messages": [{
+#       "role": "user",
+#       "content": [
+#         {"type": "text", "text": "这张图片里有什么？"},
+#         {"type": "image_url", "image_url": {"url": "https://example.com/image.jpg"}}
+#       ]
+#     }],
+#     "stream": false
+#   }'</div>
         </div>
         
         <div id="javascript-tab" class="tabcontent">
@@ -3462,61 +4858,73 @@ curl -X POST http://localhost:9090/v1/chat/completions \
             <div class="example">
 const fetch = require('node-fetch');
 
-async function chatWithGLM(message, stream = false) {
-const response = await fetch('http://localhost:9090/v1/chat/completions', {
-method: 'POST',
-headers: {
-  'Content-Type': 'application/json',
-  'Authorization': 'Bearer your-api-key'
-},
-body: JSON.stringify({
-  model: 'GLM-4.5',
-  messages: [{ role: 'user', content: message }],
-  stream: stream
-})
-});
+async function chatWithGLM(model, message, stream = false) {
+  const response = await fetch('http://localhost:9090/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer your-api-key'
+    },
+    body: JSON.stringify({
+      model: model,
+      messages: [{ role: 'user', content: message }],
+      stream: stream
+    })
+  });
 
-if (stream) {
-// 处理流式响应
-const reader = response.body.getReader();
-const decoder = new TextDecoder();
+  if (stream) {
+    // 处理流式响应
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
 
-while (true) {
-  const { done, value } = await reader.read();
-  if (done) break;
-  
-  const chunk = decoder.decode(value);
-  const lines = chunk.split('\n');
-  
-  for (const line of lines) {
-    if (line.startsWith('data: ')) {
-      const data = line.slice(6);
-      if (data === '[DONE]') {
-        console.log('\n流式响应完成');
-        return;
-      }
-      
-      try {
-        const parsed = JSON.parse(data);
-        const content = parsed.choices[0]?.delta?.content;
-        if (content) {
-          process.stdout.write(content);
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value);
+      const lines = chunk.split('\n');
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6);
+          if (data === '[DONE]') {
+            console.log('\n流式响应完成');
+            return;
+          }
+
+          try {
+            const parsed = JSON.parse(data);
+            const content = parsed.choices[0]?.delta?.content;
+            if (content) {
+              process.stdout.write(content);
+            }
+          } catch (e) {
+            // 忽略解析错误
+          }
         }
-      } catch (e) {
-        // 忽略解析错误
       }
     }
+  } else {
+    // 处理非流式响应
+    const data = await response.json();
+    console.log(data.choices[0].message.content);
   }
 }
-} else {
-// 处理非流式响应
-const data = await response.json();
-console.log(data.choices[0].message.content);
-}
-}
 
-// 使用示例
-chatWithGLM('你好，请介绍一下JavaScript', false);</div>
+// 使用示例 1: 旗舰模型 GLM-5（复杂任务）
+chatWithGLM('GLM-5', '请分析并优化这段算法的时间复杂度', false);
+
+// 使用示例 2: GLM-4.5-Air（快速响应）
+chatWithGLM('GLM-4.5-Air', '你好', false);
+
+// 使用示例 3: GLM-4.7 流式响应
+chatWithGLM('GLM-4.7', '写一个关于未来的短篇故事', true);
+
+// 使用示例 4: 多模态模型 GLM-4.6V（支持图像）
+// chatWithGLM('GLM-4.6V', [
+//   { type: 'text', text: '描述这张图片' },
+//   { type: 'image_url', image_url: { url: 'https://example.com/image.jpg' } }
+// ], false);</div>
         </div>
     </section>
     
