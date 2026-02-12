@@ -94,6 +94,24 @@ interface LiveRequest {
  * OpenAI兼容请求结构
  * 标准的聊天完成API请求格式
  */
+
+/**
+ * OpenAI工具定义
+ */
+interface Tool {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    parameters: Record<string, any>;
+  };
+}
+
+/**
+ * 工具选择策略
+ */
+type ToolChoice = "none" | "auto" | { type: "function"; function: { name: string } };
+
 interface OpenAIRequest {
   model: string;
   messages: Message[];
@@ -101,6 +119,8 @@ interface OpenAIRequest {
   temperature?: number;
   max_tokens?: number;
   reasoning?: boolean;
+  tools?: Tool[];
+  tool_choice?: ToolChoice;
 }
 
 /**
@@ -3057,6 +3077,16 @@ async function handleChatCompletions(request: Request): Promise<Response> {
   // 提取用户最后消息内容（用于签名）
   const lastUserContent = ImageProcessor.extractLastUserContent(req.messages);
 
+  // 记录工具信息
+  if (req.tools && req.tools.length > 0) {
+    debugLog("🔧 检测到工具定义: 数量=%d, 工具名=[%s]",
+      req.tools.length,
+      req.tools.map(t => t.function.name).join(", ")
+    );
+  } else {
+    debugLog("🔧 未检测到工具定义");
+  }
+
   // 构造上游请求（增强版）
   const upstreamReq: UpstreamRequest = {
     stream: true, // 总是使用流式从上游获取
@@ -3078,7 +3108,7 @@ async function handleChatCompletions(request: Request): Promise<Response> {
       title_generation: false,
       tags_generation: false,
     },
-    mcp_servers: mcpServers,
+    mcp_servers: mcpServers.concat(req.tools ? req.tools.map(t => t.function.name) : []),
     model_item: {
       id: modelConfig.upstreamId,
       name: req.model, // 使用原始请求的模型名
@@ -3124,7 +3154,7 @@ async function handleChatCompletions(request: Request): Promise<Response> {
         },
       },
     },
-    tool_servers: [],
+    tool_servers: req.tools ? req.tools.map(tool => tool.function.name) : [],
     variables: {
       "{{USER_NAME}}": `Guest-${Date.now()}`,
       "{{USER_LOCATION}}": "Unknown",
@@ -4316,7 +4346,7 @@ function getDocsHTML(): string {
                 <tr>
                     <td><code>0727-360B-API</code></td>
                     <td>GLM-4.5</td>
-                    <td>通用对话、代码生成、工具调用、思考过程</td>
+                    <td>通用对话、代码生成、思考过程</td>
                 </tr>
                 <tr>
                     <td><code>glm-4.6</code></td>
@@ -4357,6 +4387,9 @@ function getDocsHTML(): string {
         </table>
         <div class="note">
             <strong>模型说明:</strong> 多模态模型（4.5V、4.6V）支持图像、视频、文档和音频内容处理。其他模型专注于文本对话和推理能力。
+        </div>
+        <div class="note">
+            <strong>关于工具调用:</strong> ZtoApi 已完整支持 OpenAI 格式的 <code>tools</code> 参数解析和转发，但实际工具调用功能受限于上游 Z.ai API。目前测试显示 <code>/api/v2/chat/completions</code> 端点可能未完全启用工具调用功能，建议使用 <code>reasoning: true</code> 参数启用思考模式以获得类似的推理能力。
         </div>
     </section>
 
@@ -4491,6 +4524,18 @@ Authorization: Bearer your-api-key</div>
                             <td>否</td>
                             <td>生成的最大令牌数</td>
                         </tr>
+                        <tr>
+                            <td>reasoning</td>
+                            <td>boolean</td>
+                            <td>否</td>
+                            <td>启用思考模式，展示模型推理过程（推荐用于复杂任务）</td>
+                        </tr>
+                        <tr>
+                            <td>tools</td>
+                            <td>array</td>
+                            <td>否</td>
+                            <td>OpenAI 格式的工具定义列表（功能受上游 API 限制）</td>
+                        </tr>
                     </tbody>
                 </table>
             </div>
@@ -4566,7 +4611,15 @@ for chunk in response:
   if chunk.choices[0].delta.content:
     print(chunk.choices[0].delta.content, end="")
 
-# 示例 4: 使用多模态模型 GLM-4.6V（支持图像）
+# 示例 4: 启用思考模式（GLM-4.5/4.6/4.7/5 支持）
+response = client.chat.completions.create(
+  model="GLM-5",
+  messages=[{"role": "user", "content": "分析这段算法的时间复杂度并给出优化建议"}],
+  reasoning=True  # 启用思考模式，展示详细推理过程
+)
+print(response.choices[0].message.content)
+
+# 示例 5: 使用多模态模型 GLM-4.6V（支持图像）
 # response = client.chat.completions.create(
 #   model="GLM-4.6V",
 #   messages=[{
@@ -4612,7 +4665,18 @@ curl -X POST http://localhost:9090/v1/chat/completions \
     "stream": true
   }'
 
-# 示例 4: 多模态请求 - 使用 GLM-4.6V（支持图像）
+# 示例 4: 启用思考模式 - 使用 GLM-5（展示详细推理过程）
+curl -X POST http://localhost:9090/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-api-key" \
+  -d '{
+    "model": "GLM-5",
+    "messages": [{"role": "user", "content": "分析这段算法的时间复杂度并给出优化建议"}],
+    "reasoning": true,
+    "stream": false
+  }'
+
+# 示例 5: 多模态请求 - 使用 GLM-4.6V（支持图像）
 # curl -X POST http://localhost:9090/v1/chat/completions \
 #   -H "Content-Type: application/json" \
 #   -H "Authorization: Bearer your-api-key" \
@@ -4696,7 +4760,28 @@ chatWithGLM('GLM-4.5-Air', '你好', false);
 // 使用示例 3: GLM-4.7 流式响应
 chatWithGLM('GLM-4.7', '写一个关于未来的短篇故事', true);
 
-// 使用示例 4: 多模态模型 GLM-4.6V（支持图像）
+// 使用示例 4: 启用思考模式（GLM-4.5/4.6/4.7/5 支持）
+async function chatWithReasoning(model, message) {
+  const response = await fetch('http://localhost:9090/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer your-api-key'
+    },
+    body: JSON.stringify({
+      model: model,
+      messages: [{ role: 'user', content: message }],
+      reasoning: true,  // 启用思考模式
+      stream: false
+    })
+  });
+  const data = await response.json();
+  console.log(data.choices[0].message.content);
+}
+
+chatWithReasoning('GLM-5', '分析这段算法的时间复杂度并给出优化建议');
+
+// 使用示例 5: 多模态模型 GLM-4.6V（支持图像）
 // chatWithGLM('GLM-4.6V', [
 //   { type: 'text', text: '描述这张图片' },
 //   { type: 'image_url', image_url: { url: 'https://example.com/image.jpg' } }
