@@ -2365,7 +2365,7 @@ function getIndexHTML(): string {
 
         .links-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
             gap: 25px;
         }
 
@@ -2629,6 +2629,13 @@ function getIndexHTML(): string {
                     <div class="link-title">API 文档</div>
                     <div class="link-desc">完整的集成指南、代码示例和最佳实践</div>
                     <span class="link-arrow">阅读文档 →</span>
+                </a>
+
+                <a href="/deno-deploy" class="link-card">
+                    <span class="link-icon">Deno</span>
+                    <div class="link-title">Deno Deploy 部署</div>
+                    <div class="link-desc">部署步骤、环境变量与常见问题</div>
+                    <span class="link-arrow">查看指南 →</span>
                 </a>
 
                 <a href="/dashboard" class="link-card">
@@ -4272,6 +4279,35 @@ function getDocsHTML(): string {
         text-decoration: underline;
     }
 
+    .page-actions {
+        display: flex;
+        justify-content: center;
+        gap: 12px;
+        margin: -20px 0 40px;
+        flex-wrap: wrap;
+    }
+
+    .action-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 18px;
+        border-radius: 999px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-subtle);
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-size: 0.9rem;
+        transition: all 0.3s ease;
+    }
+
+    .action-link:hover {
+        color: var(--text-primary);
+        border-color: var(--border-glow);
+        box-shadow: -5px 5px 20px rgba(0, 255, 245, 0.15);
+        transform: translateY(-2px);
+    }
+
     /* Responsive */
     @media (max-width: 768px) {
         body {
@@ -4304,6 +4340,11 @@ function getDocsHTML(): string {
 <body>
 <div class="container">
     <h1>ZtoApi 文档</h1>
+
+    <div class="page-actions">
+        <a class="action-link" href="/">返回首页</a>
+        <a class="action-link" href="/deno-deploy">Deno Deploy 部署</a>
+    </div>
 
     <div class="toc">
         <h2>目录</h2>
@@ -4843,6 +4884,357 @@ chatWithReasoning('GLM-5', '分析这段算法的时间复杂度并给出优化�
 </html>`;
 }
 
+function getDenoDeployHTML(): string {
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Deno Deploy 部署 - ZtoApi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@300;500;700&display=swap" rel="stylesheet">
+<style>
+    :root {
+        --bg-primary: #0a0a0f;
+        --bg-secondary: #13131a;
+        --bg-card: rgba(19, 19, 26, 0.8);
+        --bg-card-hover: rgba(19, 19, 26, 0.95);
+        --accent-cyan: #00fff5;
+        --accent-purple: #b94fff;
+        --accent-pink: #ff00aa;
+        --accent-green: #00ff88;
+        --text-primary: #ffffff;
+        --text-secondary: #a0a0c0;
+        --text-muted: #6b7280;
+        --border-glow: rgba(0, 255, 245, 0.3);
+        --border-subtle: rgba(255, 255, 255, 0.1);
+        --shadow-glow: 0 20px 40px rgba(0, 255, 245, 0.15);
+    }
+
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
+
+    body {
+        font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        line-height: 1.7;
+        padding: 40px 20px;
+        min-height: 100vh;
+    }
+
+    .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        background: var(--bg-card);
+        border-radius: 16px;
+        box-shadow: var(--shadow-glow);
+        padding: 50px;
+        border: 1px solid var(--border-subtle);
+    }
+
+    h1 {
+        font-size: clamp(2.5rem, 6vw, 4rem);
+        font-weight: 700;
+        line-height: 1.1;
+        margin-bottom: 40px;
+        text-align: center;
+        background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-cyan) 50%, var(--accent-purple) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        letter-spacing: -2px;
+    }
+
+    h2 {
+        color: var(--accent-cyan);
+        margin-top: 50px;
+        margin-bottom: 25px;
+        font-size: 1.8rem;
+        font-weight: 600;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+    }
+
+    h3 {
+        color: var(--text-primary);
+        margin-top: 30px;
+        margin-bottom: 15px;
+        font-size: 1.3rem;
+        font-weight: 500;
+    }
+
+    p {
+        color: var(--text-secondary);
+        margin: 12px 0;
+    }
+
+    .section-card {
+        background: var(--bg-secondary);
+        border-radius: 12px;
+        padding: 20px 24px;
+        border: 1px solid var(--border-subtle);
+    }
+
+    .step-list {
+        padding-left: 22px;
+        color: var(--text-secondary);
+    }
+
+    .step-list li {
+        margin: 12px 0;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 20px 0;
+        background: var(--bg-card);
+        border-radius: 12px;
+        overflow: hidden;
+    }
+
+    th, td {
+        padding: 16px;
+        text-align: left;
+        border-bottom: 1px solid var(--border-subtle);
+        vertical-align: top;
+    }
+
+    th {
+        background: var(--bg-secondary);
+        color: var(--accent-cyan);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-size: 0.85rem;
+    }
+
+    tr:hover {
+        background: var(--bg-card-hover);
+    }
+
+    .example {
+        background: var(--bg-secondary);
+        border-radius: 12px;
+        padding: 20px;
+        margin: 20px 0;
+        font-family: 'JetBrains Mono', monospace;
+        white-space: pre-wrap;
+        overflow-x: auto;
+        border: 1px solid var(--border-subtle);
+        color: var(--text-primary);
+        font-size: 0.9rem;
+        line-height: 1.5;
+    }
+
+    code {
+        font-family: 'JetBrains Mono', monospace;
+        background: rgba(0, 255, 245, 0.1);
+        padding: 3px 8px;
+        border-radius: 4px;
+        color: var(--accent-cyan);
+        font-size: 0.9em;
+    }
+
+    .note {
+        background: rgba(255, 0, 170, 0.1);
+        border-left: 4px solid var(--accent-pink);
+        padding: 15px 20px;
+        margin: 20px 0;
+        border-radius: 0 8px 8px 0;
+        color: var(--text-primary);
+    }
+
+    .page-actions {
+        display: flex;
+        justify-content: center;
+        gap: 12px;
+        margin: -20px 0 40px;
+        flex-wrap: wrap;
+    }
+
+    .action-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 18px;
+        border-radius: 999px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-subtle);
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-size: 0.9rem;
+        transition: all 0.3s ease;
+    }
+
+    .action-link:hover {
+        color: var(--text-primary);
+        border-color: var(--border-glow);
+        box-shadow: -5px 5px 20px rgba(0, 255, 245, 0.15);
+        transform: translateY(-2px);
+    }
+
+    @media (max-width: 768px) {
+        body {
+            padding: 20px 10px;
+        }
+
+        .container {
+            padding: 30px 20px;
+        }
+
+        h1 {
+            font-size: 2rem;
+        }
+
+        table {
+            font-size: 0.85rem;
+        }
+    }
+</style>
+</head>
+<body>
+<div class="container">
+    <h1>Deno Deploy 部署</h1>
+
+    <div class="page-actions">
+        <a class="action-link" href="/">返回首页</a>
+        <a class="action-link" href="/docs">API 文档</a>
+        <a class="action-link" href="/dashboard">监控看板</a>
+    </div>
+
+    <section id="overview">
+        <h2>概述</h2>
+        <p>本页介绍在 Deno Deploy 上部署 ZtoApi 的流程与注意事项。部署完成后，你将获得类似 <code>https://your-project.deno.dev</code> 的访问地址。</p>
+        <div class="note">
+            <strong>提示:</strong> 未配置 <code>ZAI_TOKEN</code> 或 <code>ZAI_TOKENS</code> 时仅支持文本对话，多模态功能会被限制。
+        </div>
+    </section>
+
+    <section id="steps">
+        <h2>部署步骤</h2>
+        <div class="section-card">
+            <ol class="step-list">
+                <li>准备仓库：确保 <code>main.ts</code> 位于仓库根目录并已推送。</li>
+                <li>在 Deno Deploy 控制台创建项目并连接 GitHub 仓库。</li>
+                <li>选择部署分支与入口文件 <code>main.ts</code>。</li>
+                <li>配置环境变量（见下表）。</li>
+                <li>部署完成后访问 <code>/v1/models</code> 与 <code>/dashboard</code> 进行验证。</li>
+            </ol>
+        </div>
+    </section>
+
+    <section id="env">
+        <h2>环境变量说明</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>变量</th>
+                    <th>用途</th>
+                    <th>建议</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>DEFAULT_KEY</code></td>
+                    <td>客户端访问密钥，用于请求鉴权</td>
+                    <td>生产环境务必设置为强随机值</td>
+                </tr>
+                <tr>
+                    <td><code>ZAI_TOKEN</code></td>
+                    <td>单个 Z.ai Token，多模态功能必需</td>
+                    <td>没有 Token 时仅支持文本</td>
+                </tr>
+                <tr>
+                    <td><code>ZAI_TOKENS</code></td>
+                    <td>多 Token 池，自动轮换提升可用性</td>
+                    <td>生产推荐优先使用</td>
+                </tr>
+                <tr>
+                    <td><code>ZAI_SIGNING_SECRET</code></td>
+                    <td>自定义签名密钥，增强安全性</td>
+                    <td>生产建议设置</td>
+                </tr>
+                <tr>
+                    <td><code>DEBUG_MODE</code></td>
+                    <td>调试日志开关</td>
+                    <td>生产环境设为 <code>false</code></td>
+                </tr>
+                <tr>
+                    <td><code>DEFAULT_STREAM</code></td>
+                    <td>默认启用流式响应</td>
+                    <td>保持 <code>true</code> 获取更低延迟</td>
+                </tr>
+                <tr>
+                    <td><code>DASHBOARD_ENABLED</code></td>
+                    <td>监控看板开关</td>
+                    <td>需要监控时保持开启</td>
+                </tr>
+            </tbody>
+        </table>
+        <div class="note">
+            <strong>建议:</strong> 生产环境推荐使用 <code>ZAI_TOKENS</code> 并关闭 <code>DEBUG_MODE</code> 以提升稳定性与性能。
+        </div>
+    </section>
+
+    <section id="examples">
+        <h2>示例代码</h2>
+        <div class="example">curl -X GET https://your-project.deno.dev/v1/models \
+  -H "Authorization: Bearer sk-your-key"</div>
+        <div class="example">curl -X POST https://your-project.deno.dev/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-your-key" \
+  -d '{
+    "model": "glm-4.6",
+    "messages": [{"role": "user", "content": "你好"}],
+    "stream": false
+  }'</div>
+    </section>
+
+    <section id="faq">
+        <h2>常见问题</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>问题</th>
+                    <th>可能原因</th>
+                    <th>处理建议</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>401 Unauthorized</td>
+                    <td>DEFAULT_KEY 不匹配</td>
+                    <td>确认请求头 Bearer 与部署环境的 DEFAULT_KEY 一致</td>
+                </tr>
+                <tr>
+                    <td>502 Bad Gateway</td>
+                    <td>上游服务异常或 Token 失效</td>
+                    <td>检查 ZAI_TOKEN/ZAI_TOKENS 是否有效</td>
+                </tr>
+                <tr>
+                    <td>/dashboard 无法访问</td>
+                    <td>DASHBOARD_ENABLED=false</td>
+                    <td>在部署环境变量中启用该开关</td>
+                </tr>
+                <tr>
+                    <td>多模态请求失败</td>
+                    <td>未配置正式 Token</td>
+                    <td>设置 ZAI_TOKEN 或 ZAI_TOKENS</td>
+                </tr>
+            </tbody>
+        </table>
+    </section>
+</div>
+</body>
+</html>`;
+}
+
 // 处理API文档页面
 async function handleDocs(request: Request): Promise<Response> {
   if (request.method !== "GET") {
@@ -4850,6 +5242,20 @@ async function handleDocs(request: Request): Promise<Response> {
   }
 
   return new Response(getDocsHTML(), {
+    status: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+    },
+  });
+}
+
+// 处理Deno Deploy部署页面
+async function handleDenoDeploy(request: Request): Promise<Response> {
+  if (request.method !== "GET") {
+    return new Response("Method not allowed", { status: 405 });
+  }
+
+  return new Response(getDenoDeployHTML(), {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
@@ -4939,6 +5345,17 @@ async function handleHttp(conn: Deno.Conn) {
         // 请求统计已在handleChatCompletions中记录
       } else if (url.pathname === "/docs") {
         const response = await handleDocs(request);
+        await respondWith(response);
+        recordRequestStats(startTime, url.pathname, response.status);
+        addLiveRequest(
+          request.method,
+          url.pathname,
+          response.status,
+          Date.now() - startTime,
+          userAgent
+        );
+      } else if (url.pathname === "/deno-deploy") {
+        const response = await handleDenoDeploy(request);
         await respondWith(response);
         recordRequestStats(startTime, url.pathname, response.status);
         addLiveRequest(
@@ -5045,6 +5462,17 @@ async function handleRequest(request: Request): Promise<Response> {
       return response;
     } else if (url.pathname === "/docs") {
       const response = await handleDocs(request);
+      recordRequestStats(startTime, url.pathname, response.status);
+      addLiveRequest(
+        request.method,
+        url.pathname,
+        response.status,
+        Date.now() - startTime,
+        userAgent
+      );
+      return response;
+    } else if (url.pathname === "/deno-deploy") {
+      const response = await handleDenoDeploy(request);
       recordRequestStats(startTime, url.pathname, response.status);
       addLiveRequest(
         request.method,
